@@ -25,7 +25,7 @@ description: How to run and end-to-end test the AgentDesk app on this Windows bo
 - Thread detail incl. runs: `GET /api/threads/:id` (run.status, depth, parent_run_id, tokens). Pending approvals: `GET /api/approvals`. Activity feed: `GET /api/activity?limit=200`.
 - SSE replay: `GET /api/runs/:id/events` streams persisted events even for finished runs — quick way to verify event history without UI.
 
-## Known pitfalls discovered while testing (verify before reuse)
-- A custom MCP plugin whose `command` doesn't exist can crash the server (unhandled spawn 'error') and the plugin row may persist enabled=1 → every boot retries and crashes. Recovery: `DELETE FROM plugins WHERE id='<pid>'` in agentdesk.db, then restart.
-- Runs in-flight during a crash stay `running` forever (no boot reconciliation); pending approvals become unresumable after restart (resolver map is in-memory).
-- On Windows, `spawn('npx.cmd')` without `shell:true` fails EINVAL — bundled MCP marketplace entries can't activate there.
+## Previously-fixed pitfalls (kept as regression tests to re-check)
+- A custom MCP plugin whose `command` doesn't exist used to crash the server and brick every boot — now: `spawn` 'error' is handled, and rows are only enabled after successful activation. Regression check: connect a bogus MCP, expect a clean error + no row.
+- Zombie runs/stranded approvals are reconciled at boot: `running`/`awaiting_approval` → `failed`, pending approvals → `expired`. Mid-session stranded approvals are decidable via `pendingApprovals` on `GET /api/threads/:id`.
+- On Windows, MCP commands ending `.cmd`/`.bat` spawn via `shell:true` — bundled `npx.cmd` entries can activate (still needs npx installed).
