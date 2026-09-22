@@ -1,268 +1,176 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import { Inspector } from "../components/Inspector";
-import { RunStream } from "../components/RunStream";
 import { useFetch } from "../lib/hooks";
-import type { Agent, Message, Provider, Run, Thread } from "../types";
+import { RunStream } from "../components/RunStream";
+import { Inspector } from "../components/Inspector";
+import type { Agent, Message, Provider } from "../types";
 
-type ThreadData = { thread: Thread; messages: Message[]; runs: Run[] };
+type ThreadDetail = {
+  thread: { id: string; title: string; agent_id: string };
+  messages: Message[];
+  runs: { id: string; agent_id: string; status: string }[];
+};
 
-export function ChatPage({ threadId, onThreadChanged }: { threadId: string | null; onThreadChanged: () => void }) {
-  const { data, reload } = useFetch<ThreadData>(threadId ? `/api/threads/${threadId}` : null, [threadId]);
-  const { data: providersData } = useFetch<{ providers: Provider[] }>("/api/providers");
+const SUGGESTIONS = [
+  "calc 21*2",
+  "fetch example.com",
+  "spawn a subagent team",
+  "run a shell command",
+];
+
+export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onThreadChanged: () => void }) {
+  const { data, reload } = useFetch<ThreadDetail>(`/api/threads/${threadId}`);
   const { data: agentsData } = useFetch<{ agents: Agent[] }>("/api/agents");
+  const { data: providersData } = useFetch<{ providers: Provider[] }>("/api/providers");
 
-  const [input, setInput] = useState("");
-  const [liveRunId, setLiveRunId] = useState<string | null>(null);
   const [agentId, setAgentId] = useState("orchestrator");
   const [providerId, setProviderId] = useState("mock");
-  const [model, setModel] = useState<string>("");
-  const [showInspector, setShowInspector] = useState(true);
-  const [sending, setSending] = useState(false);
-  const [liveStatus, setLiveStatus] = useState<string | null>(null);
-  const [contextKey, setContextKey] = useState(0);
+  const [model, setModel] = useState("mock");
+  const [input, setInput] = useState("");
+  const [liveRunId, setLiveRunId] = useState<string | null>(null);
+  const [liveStatus, setLiveStatus] = useState("running");
+  const [inspector, setInspector] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const settled = useRef(true);
 
-  const provider = providersData?.providers.find((p) => p.id === providerId);
-  const models = provider?.models ?? [];
+  const providers = providersData?.providers ?? [];
+  const activeProvider = providers.find((p) => p.id === providerId);
+  const models = activeProvider?.models ?? [];
 
   useEffect(() => {
-    setLiveRunId(null);
-    setLiveStatus(null);
-    settled.current = false;
-    setContextKey((c) => c + 1);
-  }, [threadId]);
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [data?.messages.length, liveRunId]);
 
-  const send = async () => {
-    if (!threadId || !input.trim() || sending) return;
-    setSending(true);
-    const message = input;
+  const send = async (text?: string) => {
+    const message = (text ?? input).trim();
+    if (!message || !settled.current) return;
     setInput("");
-    try {
-      const { runId } = await api.post<{ runId: string }>(`/api/threads/${threadId}/runs`, {
-        message,
-        agentId,
-        providerId,
-        model: model || undefined,
-      });
-      settled.current = false;
-      setLiveRunId(runId);
-      setLiveStatus("running");
-    } catch (e) {
-      alert((e as Error).message);
-    } finally {
-      setSending(false);
-    }
+    settled.current = false;
+    const { runId } = await api.post<{ runId: string }>(`/api/threads/${threadId}/runs`, {
+      message, agentId, providerId, model,
+    });
+    setLiveStatus("running");
+    setLiveRunId(runId);
+    reload();
   };
 
-  const cancel = async () => {
-    if (liveRunId) await api.post(`/api/runs/${liveRunId}/cancel`);
-  };
-
-  // Track live status; refresh history once when the run settles.
-  const settled = useRef(false);
-  const onStatusChange = useCallback((status: string) => {
-    setLiveStatus(status);
-    if (!settled.current && ["completed", "failed", "cancelled"].includes(status)) {
-      settled.current = true;
-      setTimeout(() => {
-        reload();
-        onThreadChanged();
-        setContextKey((c) => c + 1);
-      }, 400);
-    }
-  }, [reload, onThreadChanged]);
-
-  const messages = data?.messages ?? [];
-  const runs = data?.runs ?? [];
+  const stop = () => { if (liveRunId) api.post(`/api/runs/${liveRunId}/cancel`); };
 
   return (
     <div className="flex-1 flex min-w-0">
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-12 shrink-0 border-b border-line flex items-center px-4 gap-3">
-          <div className="font-medium text-sm truncate flex-1">
-            {data?.thread?.title ?? "New thread"}
-          </div>
-          <select
-            className="bg-surface-2 border border-line rounded text-xs px-2 py-1"
-            value={agentId}
-            onChange={(e) => setAgentId(e.target.value)}
-            title="Agent"
-          >
-            {(agentsData?.agents ?? []).map((a) => (
-              <option key={a.id} value={a.id}>{a.name}</option>
-            ))}
+        <header className="h-13 px-5 flex items-center gap-2.5 border-b border-line shrink-0">
+          <select className="input !py-1.5 !px-2.5 text-[12px] !rounded-full w-36" value={agentId} onChange={(e) => setAgentId(e.target.value)}>
+            {(agentsData?.agents ?? []).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
-          <select
-            className="bg-surface-2 border border-line rounded text-xs px-2 py-1"
-            value={providerId}
-            onChange={(e) => { setProviderId(e.target.value); setModel(""); }}
-            title="Provider"
-          >
-            {(providersData?.providers ?? []).filter((p) => p.configured).map((p) => (
-              <option key={p.id} value={p.id}>{p.label}</option>
-            ))}
+          <select className="input !py-1.5 !px-2.5 text-[12px] !rounded-full w-32" value={providerId} onChange={(e) => { setProviderId(e.target.value); setModel(""); }}>
+            {providers.filter((p) => p.configured).map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
           </select>
-          <select
-            className="bg-surface-2 border border-line rounded text-xs px-2 py-1 max-w-40"
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            title="Model"
-          >
+          <select className="input !py-1.5 !px-2.5 text-[12px] !rounded-full w-44" value={model} onChange={(e) => setModel(e.target.value)}>
             <option value="">default model</option>
             {models.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
-          <button
-            onClick={() => setShowInspector((s) => !s)}
-            className={`text-xs px-2 py-1 rounded border ${showInspector ? "border-accent/50 text-accent-soft" : "border-line text-neutral-400"}`}
-          >
-            Inspector
-          </button>
+          <div className="ml-auto flex items-center gap-2">
+            {liveRunId && (
+              <button onClick={() => setInspector((v) => !v)} className={`btn-mini ${inspector ? "!bg-ink !text-paper !border-ink" : ""}`}>
+                Inspector
+              </button>
+            )}
+          </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-6 py-4">
-          {!threadId && (
-            <EmptyState onSend={(m) => {
-              // create thread then send is handled by parent flow — just prompt to create
-              setInput(m);
-            }} />
-          )}
-          {threadId && messages.length === 0 && !liveRunId && (
-            <div className="text-neutral-500 text-sm py-10 text-center">
-              Send a message to start. Try <code className="text-neutral-300">help</code> with the mock model —
-              no API key needed.
-            </div>
-          )}
-
-          <div className="max-w-3xl mx-auto space-y-4">
-            {messages.map((m) => <HistoricMessage key={m.id} m={m} />)}
+        <div className="flex-1 overflow-y-auto">
+          <div className="max-w-2xl mx-auto px-6 py-8 space-y-5">
+            {(data?.messages ?? []).length === 0 && !liveRunId && (
+              <EmptyState onSuggest={(s) => send(s)} />
+            )}
+            {(data?.messages ?? []).map((m) => <HistoricMessage key={m.id} m={m} />)}
             {liveRunId && (
-              <LiveRun
-                key={liveRunId}
-                runId={liveRunId}
-                onStatusChange={onStatusChange}
-              />
+              <div className="rise">
+                <RunStream runId={liveRunId} onStatusChange={(s) => {
+                  setLiveStatus(s);
+                  if (["completed", "failed", "cancelled"].includes(s) && !settled.current) {
+                    settled.current = true;
+                    setLiveRunId(null);
+                    reload();
+                    onThreadChanged();
+                  }
+                }} />
+              </div>
             )}
             <div ref={bottomRef} />
           </div>
         </div>
 
-        {threadId && (
-          <div className="shrink-0 border-t border-line p-4">
-            <div className="max-w-3xl mx-auto flex gap-2">
+        <div className="shrink-0 px-6 pb-5 pt-2">
+          <div className="max-w-2xl mx-auto">
+            <div className="card px-4 py-3" style={{ boxShadow: "var(--shadow-pop)" }}>
               <textarea
-                className="flex-1 bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:border-accent/60"
-                rows={input.split("\n").length > 3 ? 4 : 2}
-                placeholder="Message the agent… (Enter to send, Shift+Enter for newline)"
+                className="w-full bg-transparent resize-none text-[14px] leading-relaxed outline-none placeholder:text-ink-3"
+                rows={Math.min(6, Math.max(1, input.split("\n").length))}
+                placeholder={`Message ${agentsData?.agents.find((a) => a.id === agentId)?.name ?? "agent"}…`}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    void send();
-                  }
+                  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
                 }}
               />
-              {liveStatus === "running" || liveStatus === "awaiting_approval" ? (
-                <button onClick={cancel} className="px-4 rounded-lg bg-red-600/80 hover:bg-red-600 text-white text-sm self-end">
-                  Stop
-                </button>
-              ) : (
-                <button
-                  onClick={() => void send()}
-                  disabled={sending || !input.trim()}
-                  className="px-4 rounded-lg bg-accent hover:bg-accent/90 disabled:opacity-40 text-white text-sm self-end"
-                >
-                  Send
-                </button>
-              )}
+              <div className="flex items-center mt-1">
+                <span className="text-[11px] text-ink-3">Enter to send · Shift+Enter newline</span>
+                <div className="ml-auto">
+                  {liveRunId && liveStatus === "running" ? (
+                    <button onClick={stop} className="btn-ghost !py-1.5 !px-4 !text-[12px]">Stop</button>
+                  ) : (
+                    <button onClick={() => send()} disabled={!input.trim()} className="btn-ink !py-1.5 !px-4 !text-[12px]">Send ↑</button>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
-        )}
+        </div>
       </div>
-
-      {showInspector && threadId && (
-        <Inspector runId={liveRunId ?? runs[runs.length - 1]?.id ?? null} runs={runs} contextKey={contextKey} />
-      )}
+      {inspector && liveRunId && <Inspector runId={liveRunId} />}
     </div>
   );
 }
 
-/** Live run wrapper: reports every status change to the parent. */
-function LiveRun({ runId, onStatusChange }: { runId: string; onStatusChange: (status: string) => void }) {
+function EmptyState({ onSuggest }: { onSuggest: (s: string) => void }) {
   return (
-    <div className="space-y-4">
-      <RunStream runId={runId} onStatusChange={onStatusChange} />
+    <div className="py-16 text-center">
+      <span className="bolt text-3xl text-ink inline-block mb-5" />
+      <h1 className="font-display text-[34px] leading-tight tracking-tight">Welcome to AgentDesk</h1>
+      <p className="text-ink-2 mt-3 text-[14px]">Deploy agents to plan, fetch, code and build — everything stays on your machine.</p>
+      <div className="flex flex-wrap justify-center gap-2 mt-7">
+        {SUGGESTIONS.map((s) => (
+          <button key={s} onClick={() => onSuggest(s)} className="btn-ghost !text-[12px] !py-1.5">{s}</button>
+        ))}
+      </div>
     </div>
   );
 }
 
 function HistoricMessage({ m }: { m: Message }) {
-  const [open, setOpen] = useState(false);
   if (m.role === "user") {
     return (
-      <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-accent/20 border border-accent/30 px-4 py-2 text-sm whitespace-pre-wrap">
+      <div className="flex justify-end rise">
+        <div className="bg-ink text-paper rounded-2xl rounded-br-md px-4 py-2.5 text-[14px] max-w-[80%] whitespace-pre-wrap leading-relaxed">
           {m.content}
         </div>
       </div>
     );
   }
-  if (m.role === "tool") return null; // results live inside their call cards via run view
-
-  const calls = m.toolCalls ?? [];
+  if (m.role === "tool") return null;
+  const toolCalls = m.toolCalls ?? [];
   return (
-    <div className="space-y-1.5">
-      {m.content && (
-        <div className="text-sm leading-relaxed whitespace-pre-wrap text-neutral-200">{m.content}</div>
-      )}
-      {calls.length > 0 && (
-        <div>
-          <button onClick={() => setOpen((o) => !o)} className="text-[11px] text-neutral-500 hover:text-neutral-300">
-            {open ? "▾" : "▸"} {calls.length} tool call{calls.length > 1 ? "s" : ""}
-          </button>
-          {open && (
-            <div className="mt-1 space-y-1">
-              {calls.map((tc) => (
-                <div key={tc.id} className="rounded-md border border-line bg-surface-2 px-3 py-1.5 text-xs">
-                  <span className="font-mono text-neutral-300">{tc.name}</span>
-                  <pre className="text-neutral-500">{JSON.stringify(tc.arguments, null, 2)}</pre>
-                </div>
-              ))}
-            </div>
-          )}
+    <div className="rise">
+      {m.content && <p className="whitespace-pre-wrap text-[14px] leading-relaxed">{m.content}</p>}
+      {toolCalls.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {toolCalls.map((tc: { id: string; name: string }) => (
+            <span key={tc.id} className="text-[11px] px-2 py-0.5 rounded-full bg-fill text-ink-2 font-mono">{tc.name}</span>
+          ))}
         </div>
       )}
-    </div>
-  );
-}
-
-function EmptyState({ onSend }: { onSend: (m: string) => void }) {
-  const suggestions = [
-    "help",
-    "calc 21 * 2",
-    "remember my favorite editor is vim",
-    "spawn a subagent team to research agent desktops",
-  ];
-  return (
-    <div className="max-w-xl mx-auto pt-16 text-center space-y-6">
-      <div>
-        <div className="text-2xl font-semibold tracking-tight">AgentDesk</div>
-        <p className="text-neutral-500 text-sm mt-2">
-          A local agent work platform — durable threads, multi-provider models,
-          tool calls with approvals, plugin marketplace, and specialist sub-agents.
-        </p>
-      </div>
-      <div className="grid grid-cols-2 gap-2 text-left">
-        {suggestions.map((s) => (
-          <div key={s} className="rounded-lg border border-line bg-surface-1 px-3 py-2.5 text-xs text-neutral-400">
-            {s}
-          </div>
-        ))}
-      </div>
-      <p className="text-[11px] text-neutral-600">
-        Create a thread from the sidebar to begin. The offline mock model needs no API key.
-      </p>
     </div>
   );
 }

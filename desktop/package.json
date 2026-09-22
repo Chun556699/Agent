@@ -1,0 +1,15 @@
+{
+  "name": "agentdesk-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AgentDesk desktop shell — Electron wrapper around the local AgentDesk server.",
+  "type": "module",
+  "main": "main.mjs",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}

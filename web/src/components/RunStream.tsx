@@ -2,272 +2,185 @@ import { useEffect, useReducer, useRef } from "react";
 import { api, streamRun } from "../api";
 import type { RunEvent } from "../types";
 
-export type Block =
-  | { kind: "text"; key: string; text: string; complete: boolean }
-  | { kind: "tool"; key: string; toolCallId: string; name: string; args: unknown; result?: string; ok?: boolean; waitingApproval?: boolean }
-  | { kind: "approval"; key: string; approvalId: string; tool: string; args: unknown; danger: string; resolved?: boolean }
-  | { kind: "subagent"; key: string; childRunId: string; agentName: string; task: string; status?: string }
-  | { kind: "notice"; key: string; text: string };
+type Block =
+  | { kind: "text"; text: string }
+  | { kind: "tool"; id: string; name: string; args: unknown; ok?: boolean; result?: string; error?: string; denied?: boolean }
+  | { kind: "approval"; approvalId: string; tool: string; args: unknown; danger: string; resolved?: boolean }
+  | { kind: "subagent"; childRunId: string; agentName: string; task: string; status?: string }
+  | { kind: "notice"; text: string };
 
 type State = {
   blocks: Block[];
-  status: "connecting" | "running" | "completed" | "failed" | "cancelled" | "done";
-  usage?: { inputTokens: number; outputTokens: number };
-  error?: string;
+  status: string;
+  usage: { inputTokens: number; outputTokens: number };
 };
 
-type Action = { type: "event"; ev: RunEvent };
-
-let seq = 0;
-const k = () => `b${seq++}`;
-
-function reduce(state: State, action: Action): State {
-  const ev = action.ev;
+function reducer(state: State, ev: RunEvent): State {
   const blocks = [...state.blocks];
-  const lastText = () => {
-    const last = blocks[blocks.length - 1];
-    if (last?.kind === "text" && !last.complete) return last;
-    const b: Block = { kind: "text", key: k(), text: "", complete: false };
-    blocks.push(b);
-    return b;
-  };
+  const last = blocks[blocks.length - 1];
 
   switch (ev.type) {
-    case "run_started":
-      return state;
-    case "message_delta": {
-      lastText().text += ev.delta ?? "";
+    case "message_delta":
+      if (last?.kind === "text") blocks[blocks.length - 1] = { ...last, text: last.text + (ev.delta ?? "") };
+      else blocks.push({ kind: "text", text: ev.delta ?? "" });
       return { ...state, blocks };
-    }
-    case "message_complete": {
-      const last = blocks[blocks.length - 1];
-      if (last?.kind === "text") {
-        last.complete = true;
-        last.text = ev.content || last.text;
-      } else if (ev.content) {
-        blocks.push({ kind: "text", key: k(), text: ev.content, complete: true });
-      }
+    case "tool_call":
+      blocks.push({ kind: "tool", id: ev.toolCallId ?? "", name: ev.name ?? "", args: ev.args });
       return { ...state, blocks };
-    }
-    case "tool_call": {
-      const tb = blocks.find(
-        (b) => b.kind === "tool" && b.toolCallId === ev.toolCallId
-      );
-      if (!tb) {
-        blocks.push({
-          kind: "tool", key: k(), toolCallId: String(ev.toolCallId),
-          name: String(ev.name), args: ev.args,
-        });
-      }
-      return { ...state, blocks };
-    }
     case "tool_result": {
-      const tb = blocks.find(
-        (b) => b.kind === "tool" && b.toolCallId === ev.toolCallId
-      );
-      if (tb && tb.kind === "tool") {
-        tb.ok = ev.ok as boolean;
-        tb.waitingApproval = false;
-        tb.result =
-          typeof ev.result === "string"
-            ? ev.result
-            : ev.result != null
-              ? JSON.stringify(ev.result, null, 2)
-              : ev.error;
-        if (!ev.ok && ev.error) tb.result = `Error: ${ev.error}`;
+      const i = blocks.findIndex((b) => b.kind === "tool" && b.id === ev.toolCallId);
+      if (i >= 0) {
+        const t = blocks[i] as Extract<Block, { kind: "tool" }>;
+        blocks[i] = { ...t, ok: ev.ok, result: typeof ev.result === "string" ? ev.result : JSON.stringify(ev.result), error: ev.error, denied: !!ev.denied };
       }
       return { ...state, blocks };
     }
-    case "approval_request": {
-      const tb = blocks.find(
-        (b) => b.kind === "tool" && b.toolCallId === ev.toolCallId
-      );
-      if (tb && tb.kind === "tool") tb.waitingApproval = true;
-      blocks.push({
-        kind: "approval", key: k(), approvalId: String(ev.approvalId),
-        tool: String(ev.tool), args: ev.args, danger: String(ev.danger ?? "confirm"),
-      });
-      return { ...state, blocks };
-    }
+    case "approval_request":
+      blocks.push({ kind: "approval", approvalId: ev.approvalId ?? "", tool: ev.tool ?? "", args: ev.args, danger: ev.danger ?? "" });
+      return { ...state, status: "awaiting_approval", blocks };
     case "approval_resolved": {
-      for (const b of blocks) {
-        if (b.kind === "approval" && b.resolved == null && b.tool === ev.tool) b.resolved = true;
-        if (b.kind === "tool" && b.toolCallId === ev.toolCallId) b.waitingApproval = false;
-      }
-      return { ...state, blocks };
+      const i = blocks.findIndex((b) => b.kind === "approval" && b.approvalId === ev.approvalId);
+      if (i >= 0) blocks[i] = { ...(blocks[i] as Extract<Block, { kind: "approval" }>), resolved: true };
+      return { ...state, status: "running", blocks };
     }
-    case "subagent_started": {
-      blocks.push({
-        kind: "subagent", key: k(), childRunId: String(ev.childRunId),
-        agentName: String(ev.agentName ?? ev.agentId), task: String(ev.task ?? ""),
-        status: "running",
-      });
+    case "subagent_started":
+      blocks.push({ kind: "subagent", childRunId: ev.childRunId ?? "", agentName: ev.agentName ?? "", task: ev.task ?? "" });
       return { ...state, blocks };
-    }
     case "subagent_finished": {
-      const sb = blocks.find((b) => b.kind === "subagent" && b.childRunId === ev.childRunId);
-      if (sb && sb.kind === "subagent") sb.status = String(ev.status);
+      const i = blocks.findIndex((b) => b.kind === "subagent" && b.childRunId === ev.childRunId);
+      if (i >= 0) blocks[i] = { ...(blocks[i] as Extract<Block, { kind: "subagent" }>), status: ev.status };
       return { ...state, blocks };
     }
-    case "context_compacted": {
-      blocks.push({ kind: "notice", key: k(), text: `Context compacted (${ev.droppedCount} older messages summarized)` });
+    case "context_compacted":
+      blocks.push({ kind: "notice", text: `Context compacted — ${ev.droppedCount} older messages folded into the thread summary` });
       return { ...state, blocks };
-    }
-    case "run_completed": {
+    case "run_completed":
       return {
         ...state,
-        status: (ev.status as State["status"]) ?? "completed",
-        usage: ev.usage as State["usage"],
-        error: ev.error as string | undefined,
+        status: ev.status ?? state.status,
+        usage: ev.usage ?? state.usage,
       };
-    }
+    case "usage":
+      if (!ev.usage) return state;
+      return { ...state, usage: { inputTokens: state.usage.inputTokens + ev.usage.inputTokens, outputTokens: state.usage.outputTokens + ev.usage.outputTokens } };
     default:
       return state;
   }
 }
 
-export function useRunEvents(runId: string | null) {
-  const [state, dispatch] = useReducer(reduce, { blocks: [], status: "connecting" });
+export function RunStream({ runId, compact, onStatusChange }: { runId: string; compact?: boolean; onStatusChange?: (status: string) => void }) {
+  const [state, dispatch] = useReducer(reducer, { blocks: [], status: "running", usage: { inputTokens: 0, outputTokens: 0 } });
+  const boxRef = useRef<HTMLDivElement>(null);
+  const lastStatus = useRef("");
+
   useEffect(() => {
-    if (!runId) return;
-    const close = streamRun(runId, (ev) => dispatch({ type: "event", ev }));
-    return close;
+    return streamRun(runId, (ev) => dispatch(ev as RunEvent));
   }, [runId]);
-  return state;
-}
-
-function ToolCard({ block }: { block: Extract<Block, { kind: "tool" }> }) {
-  return (
-    <details className="rounded-md border border-line bg-surface-2 text-xs open:bg-surface-2/80">
-      <summary className="px-3 py-1.5 cursor-pointer flex items-center gap-2 select-none list-none">
-        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-          block.waitingApproval ? "bg-amber-400 streaming-dot"
-          : block.ok == null ? "bg-sky-400 streaming-dot"
-          : block.ok ? "bg-emerald-400" : "bg-red-400"
-        }`} />
-        <span className="font-mono text-neutral-300">{block.name}</span>
-        <span className="text-neutral-500">
-          {block.waitingApproval ? "awaiting approval" : block.ok == null ? "running…" : block.ok ? "done" : "failed"}
-        </span>
-      </summary>
-      <div className="px-3 pb-2 pt-1 space-y-1 border-t border-line/60">
-        <pre className="text-neutral-400">args: {JSON.stringify(block.args, null, 2)}</pre>
-        {block.result != null && (
-          <pre className="text-neutral-300 max-h-64 overflow-y-auto">{block.result}</pre>
-        )}
-      </div>
-    </details>
-  );
-}
-
-function ApprovalCard({ block }: { block: Extract<Block, { kind: "approval" }> }) {
-  const decide = async (approved: boolean, alwaysAllow = false) => {
-    await api.post(`/api/approvals/${block.approvalId}`, { approved, alwaysAllow });
-  };
-  if (block.resolved) {
-    return (
-      <div className="rounded-md border border-line bg-surface-1 px-3 py-1.5 text-xs text-neutral-500">
-        {block.tool} — decided
-      </div>
-    );
-  }
-  const dangerous = block.danger === "dangerous";
-  return (
-    <div className={`rounded-md border px-3 py-2 text-xs space-y-2 ${
-      dangerous ? "border-red-500/50 bg-red-500/5" : "border-amber-500/50 bg-amber-500/5"
-    }`}>
-      <div className="flex items-center gap-2">
-        <span className={dangerous ? "text-red-400" : "text-amber-400"}>Approval required</span>
-        <span className="font-mono text-neutral-300">{block.tool}</span>
-        <span className="text-neutral-500">({block.danger})</span>
-      </div>
-      <pre className="text-neutral-400 max-h-40 overflow-y-auto">{JSON.stringify(block.args, null, 2)}</pre>
-      <div className="flex gap-2">
-        <button onClick={() => decide(true)}
-          className="px-2.5 py-1 rounded bg-emerald-600/80 hover:bg-emerald-600 text-white">
-          Approve
-        </button>
-        <button onClick={() => decide(true, true)}
-          className="px-2.5 py-1 rounded bg-surface-3 hover:bg-surface-3/70 text-neutral-200">
-          Always allow
-        </button>
-        <button onClick={() => decide(false)}
-          className="px-2.5 py-1 rounded bg-red-600/80 hover:bg-red-600 text-white">
-          Deny
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function SubagentCard({ block }: { block: Extract<Block, { kind: "subagent" }> }) {
-  return (
-    <div className="rounded-md border border-indigo-500/30 bg-indigo-500/5">
-      <div className="px-3 py-1.5 flex items-center gap-2 text-xs border-b border-indigo-500/20">
-        <span className="text-indigo-400">⬡</span>
-        <span className="text-indigo-300 font-medium">{block.agentName}</span>
-        <span className="text-neutral-500 truncate flex-1">{block.task}</span>
-        <span className={`shrink-0 ${block.status === "completed" ? "text-emerald-400" : block.status === "running" ? "text-sky-400 streaming-dot" : "text-neutral-500"}`}>
-          {block.status ?? "running"}
-        </span>
-      </div>
-      <div className="px-3 py-2">
-        <RunStream runId={block.childRunId} compact />
-      </div>
-    </div>
-  );
-}
-
-/** Renders a run's live event stream. Recurses into sub-agent runs. */
-export function RunStream({
-  runId, compact, onStatusChange,
-}: {
-  runId: string;
-  compact?: boolean;
-  onStatusChange?: (status: State["status"]) => void;
-}) {
-  const state = useRunEvents(runId);
-  const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    onStatusChange?.(state.status);
+    if (state.status !== lastStatus.current) {
+      lastStatus.current = state.status;
+      onStatusChange?.(state.status);
+    }
   }, [state.status, onStatusChange]);
 
   useEffect(() => {
-    scrollRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [state.blocks.length, state.status]);
+    boxRef.current?.scrollTo({ top: boxRef.current.scrollHeight });
+  }, [state.blocks.length]);
 
   return (
-    <div className={compact ? "space-y-1.5" : "space-y-3"}>
-      {state.blocks.map((b) => {
-        if (b.kind === "text") {
-          return (
-            <div key={b.key} className={`text-sm leading-relaxed whitespace-pre-wrap ${b.complete ? "" : "after:content-['▍'] after:text-accent-soft after:animate-pulse"}`}>
-              {b.text || <span className="text-neutral-500">…</span>}
-            </div>
-          );
-        }
-        if (b.kind === "tool") return <ToolCard key={b.key} block={b} />;
-        if (b.kind === "approval") return <ApprovalCard key={b.key} block={b} />;
-        if (b.kind === "subagent") return <SubagentCard key={b.key} block={b} />;
-        return (
-          <div key={b.key} className="text-[11px] text-neutral-500 italic">{b.text}</div>
-        );
-      })}
-      {state.status === "connecting" && (
-        <div className="text-xs text-neutral-500">Connecting…</div>
-      )}
-      {(state.status === "failed" || state.status === "cancelled") && (
-        <div className="text-xs text-red-400">
-          Run {state.status}{state.error ? `: ${state.error}` : ""}
+    <div ref={boxRef} className={compact ? "space-y-2" : "space-y-3"}>
+      {state.blocks.map((b, i) => <BlockView key={i} b={b} compact={compact} />)}
+      {state.status === "running" && (
+        <div className="flex items-center gap-2 text-[12px] text-ink-3">
+          <span className="streaming-dot w-1.5 h-1.5 rounded-full bg-run" />
+          working…
         </div>
       )}
-      {state.status === "completed" && state.usage && (
-        <div className="text-[11px] text-neutral-600">
-          tokens: {state.usage.inputTokens} in / {state.usage.outputTokens} out
+      {state.status === "awaiting_approval" && (
+        <div className="flex items-center gap-2 text-[12px] text-warn">
+          <span className="streaming-dot w-1.5 h-1.5 rounded-full bg-warn" />
+          waiting for approval
         </div>
       )}
-      <div ref={scrollRef} />
+      {state.status !== "running" && state.status !== "awaiting_approval" && !compact && (
+        <div className="text-[11px] text-ink-3 pt-1">
+          {state.status}{state.usage.inputTokens ? ` · ${state.usage.inputTokens + state.usage.outputTokens} tokens` : ""}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BlockView({ b, compact }: { b: Block; compact?: boolean }) {
+  switch (b.kind) {
+    case "text":
+      return <p className={`whitespace-pre-wrap leading-relaxed ${compact ? "text-[13px]" : "text-[14px]"}`}>{b.text}</p>;
+    case "tool":
+      return <ToolCard b={b} />;
+    case "approval":
+      return b.resolved ? null : <ApprovalCard b={b} />;
+    case "subagent":
+      return <SubagentCard b={b} />;
+    case "notice":
+      return <div className="text-[11px] text-ink-3 italic">{b.text}</div>;
+  }
+}
+
+function ToolCard({ b }: { b: Extract<Block, { kind: "tool" }> }) {
+  const dot = b.ok === undefined ? "bg-run streaming-dot" : b.ok ? "bg-ok" : b.denied ? "bg-warn" : "bg-err";
+  return (
+    <div className="card px-3.5 py-2.5 text-[12px] rise">
+      <div className="flex items-center gap-2">
+        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} />
+        <code className="font-mono text-[12px] font-medium">{b.name}</code>
+        <span className="text-ink-3 truncate font-mono text-[11px]">{JSON.stringify(b.args)?.slice(0, 90)}</span>
+      </div>
+      {(b.result || b.error) && (
+        <details className="mt-1.5">
+          <summary className="cursor-pointer text-ink-3 hover:text-ink text-[11px]">
+            {b.ok ? "result" : b.denied ? "denied" : "error"}
+          </summary>
+          <pre className="mt-1 text-[11px] text-ink-2 max-h-48 overflow-y-auto">{(b.result || b.error)?.slice(0, 4000)}</pre>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function ApprovalCard({ b }: { b: Extract<Block, { kind: "approval" }> }) {
+  const decide = async (approved: boolean, alwaysAllow = false) => {
+    await api.post(`/api/approvals/${b.approvalId}`, { approved, alwaysAllow });
+  };
+  return (
+    <div className="card px-4 py-3 rise border-l-2" style={{ borderLeftColor: "var(--color-warn)" }}>
+      <div className="flex items-center gap-2">
+        <span className="w-1.5 h-1.5 rounded-full bg-warn streaming-dot" />
+        <span className="text-[13px] font-medium">Approve <code className="font-mono">{b.tool}</code>?</span>
+        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-fill text-ink-2">{b.danger}</span>
+      </div>
+      <pre className="mt-1.5 text-[11px] text-ink-2 max-h-32 overflow-y-auto">{JSON.stringify(b.args, null, 2)?.slice(0, 1200)}</pre>
+      <div className="flex gap-2 mt-2.5">
+        <button onClick={() => decide(true)} className="btn-mini !bg-ink !text-paper !border-ink">Approve</button>
+        <button onClick={() => decide(true, true)} className="btn-mini">Always allow {b.tool}</button>
+        <button onClick={() => decide(false)} className="btn-mini !text-err !border-err/30">Deny</button>
+      </div>
+    </div>
+  );
+}
+
+function SubagentCard({ b }: { b: Extract<Block, { kind: "subagent" }> }) {
+  return (
+    <div className="card px-4 py-3 rise">
+      <div className="flex items-center gap-2 text-[12px]">
+        <span className="text-run">⬡</span>
+        <span className="font-medium">Sub-agent · {b.agentName}</span>
+        {b.status && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-fill text-ink-2">{b.status}</span>}
+      </div>
+      <div className="text-[12px] text-ink-2 mt-0.5 line-clamp-2">{b.task}</div>
+      <div className="mt-2 pl-3 border-l-2 border-line">
+        <RunStream runId={b.childRunId} compact />
+      </div>
     </div>
   );
 }
