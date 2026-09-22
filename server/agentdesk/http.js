@@ -110,14 +110,18 @@ export function createRouter() {
       ctx.body = await readBody(req);
       try {
         const result = await m.handler(ctx);
-        if (!res.writableEnded) json(res, 200, result);
+        // Handlers that write headers themselves (SSE, streams) own the
+        // response — don't write a JSON body or force-close them.
+        if (!res.headersSent) json(res, 200, result);
       } catch (err) {
         const status = err instanceof HttpError ? err.status : 500;
-        if (!res.writableEnded) {
+        if (!res.headersSent) {
           json(res, status, {
             error: err.message || "Internal error",
             details: err.details,
           });
+        } else if (!res.writableEnded) {
+          res.end();
         }
         if (status === 500) console.error("[api]", err);
       }
