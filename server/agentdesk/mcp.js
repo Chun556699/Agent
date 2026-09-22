@@ -12,17 +12,25 @@ export class McpClient {
   #closed = false;
 
   constructor({ command, args = [], env = {} }) {
+    // .cmd/.bat wrappers (npx.cmd on Windows) can't be exec'd directly.
+    const shell = process.platform === "win32" && /\.(cmd|bat)$/i.test(command);
     this.#proc = spawn(command, args, {
       env: { ...process.env, ...env },
       stdio: ["pipe", "pipe", "pipe"],
+      shell,
     });
+    // Without an 'error' listener a bad command (ENOENT) kills the process.
+    this.#proc.on("error", (err) => this.#fail(err));
     this.#proc.stdout.on("data", (chunk) => this.#onData(chunk));
-    this.#proc.on("exit", () => {
-      this.#closed = true;
-      for (const { reject } of this.#pending.values()) reject(new Error("MCP server exited"));
-      this.#pending.clear();
-    });
+    this.#proc.on("exit", () => this.#fail(new Error("MCP server exited")));
     this.#proc.stderr.on("data", () => {}); // server logs ignored
+  }
+
+  #fail(err) {
+    if (this.#closed) return;
+    this.#closed = true;
+    for (const { reject } of this.#pending.values()) reject(err);
+    this.#pending.clear();
   }
 
   #onData(chunk) {
@@ -55,12 +63,19 @@ export class McpClient {
         resolve: (v) => { clearTimeout(timer); resolve(v); },
         reject: (e) => { clearTimeout(timer); reject(e); },
       });
-      this.#proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+      try {
+        this.#proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+      } catch (err) {
+        clearTimeout(timer);
+        this.#pending.delete(id);
+        reject(err);
+      }
     });
   }
 
   notify(method, params = {}) {
-    this.#proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", method, params }) + "\n");
+    try { this.#proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", method, params }) + "\n"); }
+    catch { /* process gone */ }
   }
 
   async connect() {

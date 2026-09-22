@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { useFetch } from "../lib/hooks";
-import { RunStream } from "../components/RunStream";
+import { RunStream, ApprovalCard } from "../components/RunStream";
 import { Inspector } from "../components/Inspector";
 import type { Agent, Message, Provider } from "../types";
 
@@ -9,6 +9,7 @@ type ThreadDetail = {
   thread: { id: string; title: string; agent_id: string };
   messages: Message[];
   runs: { id: string; agent_id: string; status: string }[];
+  pendingApprovals: { approvalId: string; tool: string; args: unknown; danger: string; runId: string }[];
 };
 
 const SUGGESTIONS = [
@@ -36,6 +37,8 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
   const providers = providersData?.providers ?? [];
   const activeProvider = providers.find((p) => p.id === providerId);
   const models = activeProvider?.models ?? [];
+  const lastRunId = data?.runs[data.runs.length - 1]?.id;
+  const inspectRunId = liveRunId ?? lastRunId ?? null;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -71,7 +74,7 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
             {models.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
           <div className="ml-auto flex items-center gap-2">
-            {liveRunId && (
+            {inspectRunId && (
               <button onClick={() => setInspector((v) => !v)} className={`btn-mini ${inspector ? "!bg-ink !text-paper !border-ink" : ""}`}>
                 Inspector
               </button>
@@ -85,6 +88,15 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
               <EmptyState onSuggest={(s) => send(s)} />
             )}
             {(data?.messages ?? []).map((m) => <HistoricMessage key={m.id} m={m} />)}
+            {(data?.pendingApprovals ?? []).map((a) => (
+              <ApprovalCard key={a.approvalId} b={a} onDecided={() => {
+                // The server-side run resumes — follow its live stream again.
+                setLiveRunId(a.runId);
+                setLiveStatus("running");
+                settled.current = false;
+                reload();
+              }} />
+            ))}
             {liveRunId && (
               <div className="rise">
                 <RunStream runId={liveRunId} onStatusChange={(s) => {
@@ -118,7 +130,7 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
               <div className="flex items-center mt-1">
                 <span className="text-[11px] text-ink-3">Enter to send · Shift+Enter newline</span>
                 <div className="ml-auto">
-                  {liveRunId && liveStatus === "running" ? (
+                  {liveRunId && liveStatus !== "completed" && liveStatus !== "failed" && liveStatus !== "cancelled" ? (
                     <button onClick={stop} className="btn-ghost !py-1.5 !px-4 !text-[12px]">Stop</button>
                   ) : (
                     <button onClick={() => send()} disabled={!input.trim()} className="btn-ink !py-1.5 !px-4 !text-[12px]">Send ↑</button>
@@ -129,7 +141,7 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
           </div>
         </div>
       </div>
-      {inspector && liveRunId && <Inspector runId={liveRunId} />}
+      {inspector && inspectRunId && <Inspector runId={inspectRunId} />}
     </div>
   );
 }
@@ -159,7 +171,22 @@ function HistoricMessage({ m }: { m: Message }) {
       </div>
     );
   }
-  if (m.role === "tool") return null;
+  if (m.role === "tool") {
+    return (
+      <div className="card px-3.5 py-2.5 text-[12px]">
+        <div className="flex items-center gap-2">
+          <span className="w-1.5 h-1.5 rounded-full bg-ink-3 shrink-0" />
+          <code className="font-mono text-[12px] font-medium">{m.name}</code>
+        </div>
+        {m.content && (
+          <details className="mt-1.5">
+            <summary className="cursor-pointer text-ink-3 hover:text-ink text-[11px]">result</summary>
+            <pre className="mt-1 text-[11px] text-ink-2 max-h-48 overflow-y-auto">{m.content.slice(0, 4000)}</pre>
+          </details>
+        )}
+      </div>
+    );
+  }
   const toolCalls = m.toolCalls ?? [];
   return (
     <div className="rise">

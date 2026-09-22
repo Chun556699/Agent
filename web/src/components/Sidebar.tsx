@@ -82,9 +82,12 @@ export function Sidebar({
         )}
       </div>
 
-      <div className="px-5 py-3 border-t border-line flex items-center gap-2 text-[11px] text-ink-3">
-        <span className="kbd">Ctrl N</span> new thread
-      </div>
+      {/* Ctrl+N only fires inside the Electron shell — browsers hijack it. */}
+      {window.agentdeskDesktop && (
+        <div className="px-5 py-3 border-t border-line flex items-center gap-2 text-[11px] text-ink-3">
+          <span className="kbd">Ctrl N</span> new thread
+        </div>
+      )}
     </aside>
   );
 }

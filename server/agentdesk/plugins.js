@@ -119,20 +119,29 @@ export async function deactivatePlugin(id) {
   }
 }
 
-export function installPlugin(id) {
+export async function installPlugin(id) {
   const entry = MARKETPLACE.find((e) => e.id === id);
   const isLocalModule = existsSync(join(PLUGINS_DIR, `${id}.mjs`));
   if (!entry && !isLocalModule) throw new HttpError(404, `No marketplace entry or local module named '${id}'`);
+  // Insert disabled, activate, then mark enabled — a failed activation
+  // must not leave a ghost 'Enabled' row that boot retries forever.
   q.run(
     `INSERT INTO plugins (id, name, kind, spec_json, enabled)
-     VALUES (?, ?, ?, ?, 1)
-     ON CONFLICT(id) DO UPDATE SET enabled = 1`,
+     VALUES (?, ?, ?, ?, 0)
+     ON CONFLICT(id) DO UPDATE SET spec_json = excluded.spec_json`,
     id,
     entry?.name ?? id,
     entry?.kind ?? "module",
     JSON.stringify(entry?.spec ?? {})
   );
-  return activatePlugin(id);
+  try {
+    const tools = await activatePlugin(id);
+    q.run("UPDATE plugins SET enabled = 1 WHERE id = ?", id);
+    return tools;
+  } catch (err) {
+    q.run("DELETE FROM plugins WHERE id = ?", id);
+    throw err;
+  }
 }
 
 export async function uninstallPlugin(id) {

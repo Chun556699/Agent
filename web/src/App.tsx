@@ -30,9 +30,9 @@ export default function App() {
   useEffect(() => { reload(); }, [reload]);
 
   const createThread = useCallback(async () => {
-    const t = await api.post<Thread>("/api/threads");
+    const { thread } = await api.post<{ thread: Thread }>("/api/threads");
     await reload();
-    setCurrent(t.id);
+    setCurrent(thread.id);
     setPage("chat");
   }, [reload]);
 

@@ -84,8 +84,10 @@ export function RunStream({ runId, compact, onStatusChange }: { runId: string; c
     }
   }, [state.status, onStatusChange]);
 
+  // scrollIntoView reaches the enclosing chat scroller (this box rarely
+  // overflows itself) so new blocks — e.g. an approval card — stay visible.
   useEffect(() => {
-    boxRef.current?.scrollTo({ top: boxRef.current.scrollHeight });
+    boxRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
   }, [state.blocks.length]);
 
   return (
@@ -148,9 +150,10 @@ function ToolCard({ b }: { b: Extract<Block, { kind: "tool" }> }) {
   );
 }
 
-function ApprovalCard({ b }: { b: Extract<Block, { kind: "approval" }> }) {
+export function ApprovalCard({ b, onDecided }: { b: { approvalId: string; tool: string; args: unknown; danger: string }; onDecided?: () => void }) {
   const decide = async (approved: boolean, alwaysAllow = false) => {
     await api.post(`/api/approvals/${b.approvalId}`, { approved, alwaysAllow });
+    onDecided?.();
   };
   return (
     <div className="card px-4 py-3 rise border-l-2" style={{ borderLeftColor: "var(--color-warn)" }}>

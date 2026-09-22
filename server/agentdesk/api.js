@@ -126,7 +126,16 @@ export function createApi() {
        FROM runs WHERE thread_id = ? ORDER BY created_at`,
       params.id
     );
-    return { thread, messages, runs };
+    const pendingApprovals = q.all(
+      `SELECT a.id, a.tool, a.args_json, a.danger, a.run_id
+       FROM approvals a JOIN runs r ON r.id = a.run_id
+       WHERE r.thread_id = ? AND a.status = 'pending'`,
+      params.id
+    ).map((a) => ({
+      approvalId: a.id, tool: a.tool, args: JSON.parse(a.args_json),
+      danger: a.danger, runId: a.run_id,
+    }));
+    return { thread, messages, runs, pendingApprovals };
   });
 
   router.delete("/api/threads/:id", ({ params }) => {
@@ -269,14 +278,22 @@ export function createApi() {
     if (!/^[a-z0-9][a-z0-9-]*$/.test(body.id)) {
       throw new HttpError(400, "id must be lowercase alphanumerics/hyphens");
     }
+    // Insert disabled, activate, then enable — a bad command must not leave
+    // a ghost 'Enabled' row that boot retries on every start.
     q.run(
-      `INSERT INTO plugins (id, name, kind, spec_json, enabled) VALUES (?, ?, 'mcp', ?, 1)
-       ON CONFLICT(id) DO UPDATE SET spec_json = excluded.spec_json, enabled = 1`,
+      `INSERT INTO plugins (id, name, kind, spec_json, enabled) VALUES (?, ?, 'mcp', ?, 0)
+       ON CONFLICT(id) DO UPDATE SET spec_json = excluded.spec_json`,
       body.id, body.name ?? body.id,
       JSON.stringify({ command: body.command, args: body.args ?? [], env: body.env ?? {} })
     );
-    const tools = await activatePlugin(body.id);
-    return { ok: true, tools };
+    try {
+      const tools = await activatePlugin(body.id);
+      q.run("UPDATE plugins SET enabled = 1 WHERE id = ?", body.id);
+      return { ok: true, tools };
+    } catch (err) {
+      q.run("DELETE FROM plugins WHERE id = ?", body.id);
+      throw err;
+    }
   });
 
   /* -------- memory & activity -------- */
@@ -298,5 +315,13 @@ export function createApi() {
 
 export async function boot() {
   registerBuiltinTools();
+  // Reconcile state left mid-flight by a previous exit/crash: those runs can
+  // never resume (their resolvers were in-memory), so fail them instead of
+  // leaving zombie 'running'/'awaiting_approval' rows forever.
+  q.run(
+    `UPDATE runs SET status = 'failed', ended_at = datetime('now')
+     WHERE status IN ('running', 'awaiting_approval')`
+  );
+  q.run("UPDATE approvals SET status = 'expired' WHERE status = 'pending'");
   await activateInstalledPlugins();
 }
