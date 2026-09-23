@@ -12,19 +12,18 @@ export class McpClient {
   #closed = false;
 
   constructor({ command, args = [], env = {} }) {
-    // .cmd/.bat wrappers (npx.cmd on Windows) can't be exec'd directly.
-    // Route through cmd.exe with every arg quoted instead of shell:true —
-    // shell:true concatenates args unescaped (DEP0190, shell-injection
-    // surface for the custom-MCP form).
-    let file = command;
-    let argv = args;
-    if (process.platform === "win32" && /\.(cmd|bat)$/i.test(command)) {
-      file = process.env.COMSPEC || "cmd.exe";
-      const quoted = [command, ...args].map((a) => `"${String(a).replace(/"/g, '""')}"`);
-      argv = ["/d", "/s", "/c", `"${quoted.join(" ")}"`];
-    }
-    this.#proc = spawn(file, argv, {
+    // .cmd/.bat wrappers (npx.cmd on Windows) can't be exec'd directly —
+    // they need cmd.exe. We tried routing through `cmd.exe /d /s /c` with
+    // quoted args instead of shell:true and it broke every bundled MCP
+    // install: batch-file arg semantics differ from CreateProcess argv —
+    // a quoted bare command name isn't PATH-resolved, and quotes around
+    // args leak literally into the shim's %* forward. Node's own shell:true
+    // escaping is the only variant that works here, so DEP0190 stays —
+    // acceptable for local MCP specs the user explicitly installs.
+    const isBatch = process.platform === "win32" && /\.(cmd|bat)$/i.test(command);
+    this.#proc = spawn(command, args, {
       env: { ...process.env, ...env },
+      shell: isBatch,
       stdio: ["pipe", "pipe", "pipe"],
     });
     // Without an 'error' listener a bad command (ENOENT) kills the process.
