@@ -7,6 +7,7 @@ import {
   Plug,
   Plus,
   Puzzle,
+  Search,
   Trash2,
 } from "lucide-react";
 import { Menu, MenuItem, Tip } from "./ui";
@@ -24,7 +25,7 @@ const NAV: { id: Page; label: string; icon: typeof MessagesSquare }[] = [
 ];
 
 export function Sidebar({
-  page, setPage, threads, current, onSelect, onNew, onDelete,
+  page, setPage, threads, current, onSelect, onNew, onDelete, onSearch,
 }: {
   page: Page;
   setPage: (p: Page) => void;
@@ -33,6 +34,7 @@ export function Sidebar({
   onSelect: (id: string) => void;
   onNew: () => void;
   onDelete: (id: string) => void;
+  onSearch: () => void;
 }) {
   return (
     <aside className="w-64 shrink-0 flex flex-col border-r border-line bg-paper">
@@ -40,6 +42,20 @@ export function Sidebar({
         <span className="bolt text-[17px] text-ink" />
         <span className="font-semibold tracking-tight text-[15px]">AgentDesk</span>
         <span className="ml-auto text-[10px] text-ink-3 font-mono">v0.1</span>
+      </div>
+
+      {/* Haze-style primary actions — the first two rows of their sidebar */}
+      <div className="px-3 pb-2 space-y-0.5">
+        <button onClick={onNew} className="sidebar-action">
+          <Plus size={14} className="text-ink-3" />
+          New thread
+          <span className="ml-auto kbd">Ctrl N</span>
+        </button>
+        <button onClick={onSearch} className="sidebar-action">
+          <Search size={13} className="text-ink-3" />
+          Search
+          <span className="ml-auto kbd">Ctrl K</span>
+        </button>
       </div>
 
       <nav className="px-3 space-y-0.5">
@@ -107,12 +123,15 @@ export function Sidebar({
         )}
       </div>
 
-      {/* Ctrl+N only fires inside the Electron shell — browsers hijack it. */}
-      {window.agentdeskDesktop && (
-        <div className="px-5 py-3 border-t border-line flex items-center gap-2 text-[11px] text-ink-3">
-          <span className="kbd">Ctrl N</span> new thread
+      <div className="border-t border-line p-3">
+        <div className="workspace-card">
+          <span className="workspace-mark bolt" />
+          <div className="min-w-0 flex-1">
+            <div className="text-[12px] font-medium leading-tight">Local workspace</div>
+            <div className="text-[10px] text-ink-3 leading-tight mt-0.5">self-hosted · free plan</div>
+          </div>
         </div>
-      )}
+      </div>
     </aside>
   );
 }

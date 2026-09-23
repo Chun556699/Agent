@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Tooltip as RTooltip } from "radix-ui";
 import { api } from "./api";
 import { Sidebar } from "./components/Sidebar";
+import { SearchPalette } from "./components/SearchPalette";
 import { Titlebar } from "./components/Titlebar";
 import { ChatPage } from "./pages/Chat";
 import { AgentsPage } from "./pages/Agents";
@@ -17,6 +18,7 @@ export default function App() {
   const [page, setPage] = useState<Page>("chat");
   const [threads, setThreads] = useState<Thread[]>([]);
   const [current, setCurrent] = useState<string | null>(null);
+  const [palette, setPalette] = useState(false);
 
   const reload = useCallback(async () => {
     try {
@@ -42,6 +44,9 @@ export default function App() {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "n") {
         e.preventDefault();
         createThread();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPalette((p) => !p);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -67,6 +72,7 @@ export default function App() {
         onSelect={(id) => { setCurrent(id); setPage("chat"); }}
         onNew={createThread}
         onDelete={deleteThread}
+        onSearch={() => setPalette(true)}
       />
       <main className="flex-1 flex min-w-0">
         {page === "chat" && (
@@ -81,6 +87,14 @@ export default function App() {
         {page === "activity" && <ActivityPage />}
       </main>
       </div>
+      <SearchPalette
+        open={palette}
+        onOpenChange={setPalette}
+        threads={threads}
+        onSelectThread={(id) => { setCurrent(id); setPage("chat"); }}
+        onNewThread={createThread}
+        onGoPage={setPage}
+      />
     </div>
     </RTooltip.Provider>
   );
