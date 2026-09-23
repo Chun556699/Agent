@@ -11,9 +11,22 @@ const MAX_ITERATIONS = 12;
 const MAX_DEPTH = 3;
 
 const running = new Map(); // runId -> AbortController
-const pendingApprovals = new Map(); // approvalId -> { resolve }
+const pendingApprovals = new Map(); // approvalId -> { resolve, runId }
 
 export function cancelRun(runId) {
+  // Resolve this run's pending approvals first: without it the awaiting
+  // run's Promise never settles on abort, and the approval row stays
+  // 'pending' — an actionable card on a dead run.
+  for (const [id, p] of pendingApprovals) {
+    if (p.runId !== runId) continue;
+    q.run(
+      "UPDATE approvals SET status = 'cancelled', decided_at = datetime('now') WHERE id = ?",
+      id
+    );
+    pendingApprovals.delete(id);
+    p.resolve(false);
+    emit(runId, "approval_resolved", { approvalId: id, approved: false });
+  }
   running.get(runId)?.abort();
 }
 
@@ -60,7 +73,7 @@ function requestApproval({ runId, toolCallId, tool, args, danger }) {
   );
   q.run("UPDATE runs SET status = 'awaiting_approval' WHERE id = ?", runId);
   emit(runId, "approval_request", { approvalId: id, toolCallId, tool, args, danger });
-  return new Promise((resolve) => pendingApprovals.set(id, { resolve }));
+  return new Promise((resolve) => pendingApprovals.set(id, { resolve, runId }));
 }
 
 function persistMessage({ threadId, runId, role, content, toolCalls, toolCallId, name }) {

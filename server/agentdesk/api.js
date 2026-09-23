@@ -129,7 +129,7 @@ export function createApi() {
     const pendingApprovals = q.all(
       `SELECT a.id, a.tool, a.args_json, a.danger, a.run_id
        FROM approvals a JOIN runs r ON r.id = a.run_id
-       WHERE r.thread_id = ? AND a.status = 'pending'`,
+       WHERE r.thread_id = ? AND a.status = 'pending' AND r.status IN ('running','awaiting_approval')`,
       params.id
     ).map((a) => ({
       approvalId: a.id, tool: a.tool, args: JSON.parse(a.args_json),

@@ -12,7 +12,7 @@ import type { Agent, Message, Provider } from "../types";
 type ThreadDetail = {
   thread: { id: string; title: string; agent_id: string };
   messages: Message[];
-  runs: { id: string; agent_id: string; status: string }[];
+  runs: { id: string; agent_id: string; status: string; depth: number }[];
   pendingApprovals: { approvalId: string; tool: string; args: unknown; danger: string; runId: string }[];
 };
 
@@ -41,7 +41,9 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
   const providers = providersData?.providers ?? [];
   const activeProvider = providers.find((p) => p.id === providerId);
   const models = activeProvider?.models ?? [];
-  const lastRunId = data?.runs[data.runs.length - 1]?.id;
+  // Prefer the last depth-0 run so the Inspector shows the parent run tree,
+  // not a lone sub-agent child.
+  const lastRunId = [...(data?.runs ?? [])].reverse().find((r) => r.depth === 0)?.id ?? data?.runs[data.runs.length - 1]?.id;
   const inspectRunId = liveRunId ?? lastRunId ?? null;
   const running = liveRunId && !["completed", "failed", "cancelled"].includes(liveStatus);
 

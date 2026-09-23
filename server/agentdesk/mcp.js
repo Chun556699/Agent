@@ -13,11 +13,19 @@ export class McpClient {
 
   constructor({ command, args = [], env = {} }) {
     // .cmd/.bat wrappers (npx.cmd on Windows) can't be exec'd directly.
-    const shell = process.platform === "win32" && /\.(cmd|bat)$/i.test(command);
-    this.#proc = spawn(command, args, {
+    // Route through cmd.exe with every arg quoted instead of shell:true —
+    // shell:true concatenates args unescaped (DEP0190, shell-injection
+    // surface for the custom-MCP form).
+    let file = command;
+    let argv = args;
+    if (process.platform === "win32" && /\.(cmd|bat)$/i.test(command)) {
+      file = process.env.COMSPEC || "cmd.exe";
+      const quoted = [command, ...args].map((a) => `"${String(a).replace(/"/g, '""')}"`);
+      argv = ["/d", "/s", "/c", `"${quoted.join(" ")}"`];
+    }
+    this.#proc = spawn(file, argv, {
       env: { ...process.env, ...env },
       stdio: ["pipe", "pipe", "pipe"],
-      shell,
     });
     // Without an 'error' listener a bad command (ENOENT) kills the process.
     this.#proc.on("error", (err) => this.#fail(err));
