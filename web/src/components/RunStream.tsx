@@ -91,7 +91,19 @@ export function RunStream({ runId, compact, onStatusChange }: { runId: string; c
       dispatch(ev as RunEvent);
       // Terminal event seen — stop the source or it retries into a loop of
       // replay-then-close forever (costs nothing but churns the stream).
-      if (ev.type === "run_completed") close();
+      if (ev.type === "run_completed") {
+        close();
+        // Desktop shell: surface a native notification when the window was
+        // in the background. compact streams are sub-agents — the parent's
+        // completion is the one worth pinging about.
+        if (!compact && document.hidden) {
+          const u = ev.usage;
+          window.agentdeskDesktop?.notify(
+            "Run finished",
+            `${ev.status ?? "done"}${u ? ` · ${(u.inputTokens + u.outputTokens).toLocaleString()} tokens` : ""}`,
+          );
+        }
+      }
     });
     return close;
   }, [runId]);

@@ -5,8 +5,13 @@ type DesktopBridge = {
   minimize: () => void;
   toggleMaximize: () => void;
   close: () => void;
+  isMaximized: () => Promise<boolean>;
   onMaximized: (fn: (v: boolean) => void) => () => void;
+  notify: (title: string, body?: string) => void;
+  openExternal: (url: string) => void;
+  onDeepLink: (fn: (url: string) => void) => () => void;
   platform: string;
+  versions: { app: string; electron: string; chrome: string; node: string };
 };
 
 declare global {
@@ -23,7 +28,11 @@ declare global {
 export function Titlebar() {
   const d = window.agentdeskDesktop;
   const [maximized, setMaximized] = useState(false);
-  useEffect(() => d?.onMaximized(setMaximized), [d]);
+  useEffect(() => {
+    if (!d) return;
+    d.isMaximized().then(setMaximized).catch(() => {});
+    return d.onMaximized(setMaximized);
+  }, [d]);
   if (!d) return null;
   const isMac = d.platform === "darwin";
 
@@ -31,6 +40,12 @@ export function Titlebar() {
     <div
       className="h-10 shrink-0 flex items-center border-b border-line bg-paper select-none"
       style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+      onDoubleClick={(e) => {
+        // Standard titlebar behavior — the window buttons are no-drag
+        // and never reach this handler.
+        if ((e.target as HTMLElement).closest("button")) return;
+        d.toggleMaximize();
+      }}
     >
       {isMac && <div className="w-[72px] shrink-0" />}
       <div className="flex items-center gap-2 px-4">

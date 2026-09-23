@@ -47,6 +47,18 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
   const inspectRunId = liveRunId ?? lastRunId ?? null;
   const running = liveRunId && !["completed", "failed", "cancelled"].includes(liveStatus);
 
+  // Context meter — the composer's right-side gauge (monocode-style).
+  const { data: ctx, reload: reloadCtx } = useFetch<{ estimatedTokens: number; budget: number; usageRatio: number }>(
+    inspectRunId ? `/api/runs/${inspectRunId}/context` : null,
+    [liveStatus],
+  );
+  useEffect(() => {
+    if (!running) return;
+    const t = setInterval(reloadCtx, 3000);
+    return () => clearInterval(t);
+  }, [running, reloadCtx]);
+  const ctxPct = ctx ? Math.min(100, Math.round(ctx.usageRatio * 100)) : null;
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [data?.messages.length, liveRunId]);
@@ -70,27 +82,7 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
     <div className="flex-1 flex min-w-0">
       <div className="flex-1 flex flex-col min-w-0">
         <header className="h-13 px-5 flex items-center gap-2.5 border-b border-line shrink-0">
-          <PillSelect
-            className="w-40"
-            value={agentId}
-            onValue={setAgentId}
-            options={(agentsData?.agents ?? []).map((a) => ({ value: a.id, label: a.name }))}
-            placeholder="Agent"
-          />
-          <PillSelect
-            className="w-36"
-            value={providerId}
-            onValue={(v) => { setProviderId(v); setModel(""); }}
-            options={providers.filter((p) => p.configured).map((p) => ({ value: p.id, label: p.label }))}
-            placeholder="Provider"
-          />
-          <PillSelect
-            className="w-44"
-            value={model}
-            onValue={setModel}
-            options={[{ value: "", label: "default model" }, ...models.map((m) => ({ value: m, label: m }))]}
-            placeholder="Model"
-          />
+          <span className="text-[13px] font-medium truncate">{data?.thread.title || "New thread"}</span>
           <div className="ml-auto flex items-center gap-2">
             {inspectRunId && (
               <button onClick={() => setInspector((v) => !v)} className={`btn-mini ${inspector ? "!bg-ink !text-paper !border-ink" : ""}`}>
@@ -151,15 +143,44 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
                   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
                 }}
               />
-              <div className="flex items-center mt-1">
-                <span className="text-[11px] text-ink-3 flex items-center gap-2">
+              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                <PillSelect
+                  className="w-32 !py-1 !text-[11px]"
+                  value={agentId}
+                  onValue={setAgentId}
+                  options={(agentsData?.agents ?? []).map((a) => ({ value: a.id, label: a.name }))}
+                  placeholder="Agent"
+                />
+                <PillSelect
+                  className="w-28 !py-1 !text-[11px]"
+                  value={providerId}
+                  onValue={(v) => { setProviderId(v); setModel(""); }}
+                  options={providers.filter((p) => p.configured).map((p) => ({ value: p.id, label: p.label }))}
+                  placeholder="Provider"
+                />
+                <PillSelect
+                  className="w-36 !py-1 !text-[11px]"
+                  value={model}
+                  onValue={setModel}
+                  options={[{ value: "", label: "default model" }, ...models.map((m) => ({ value: m, label: m }))]}
+                  placeholder="Model"
+                />
+                {ctxPct !== null && (
+                  <Tip content={`${ctx?.estimatedTokens?.toLocaleString() ?? "?"} / ${ctx?.budget?.toLocaleString() ?? "?"} tokens`} side="top">
+                    <span className="meter">
+                      <span className="meter-bar"><i style={{ width: `${ctxPct}%` }} /></span>
+                      ctx {ctxPct}%
+                    </span>
+                  </Tip>
+                )}
+                <span className="text-[11px] text-ink-3 flex items-center gap-2 ml-2">
                   {running ? (
                     <>
                       <Orb small />
                       <span className="shimmer-text">agent working</span>
                     </>
                   ) : (
-                    "Enter to send · Shift+Enter newline"
+                    "Enter ↵ send"
                   )}
                 </span>
                 <div className="ml-auto">
@@ -195,20 +216,24 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
 function EmptyState({ onSuggest }: { onSuggest: (s: string) => void }) {
   return (
     <div className="py-16 text-center">
-      <span className="bolt float-y text-3xl text-ink inline-block mb-5" />
-      <h1 className="font-display text-[34px] leading-tight tracking-tight">Welcome to AgentDesk</h1>
-      <p className="text-ink-2 mt-3 text-[14px]">Deploy agents to plan, fetch, code and build — everything stays on your machine.</p>
-      <div className="flex flex-wrap justify-center gap-2 mt-7">
-        {SUGGESTIONS.map((s, i) => (
-          <button
-            key={s}
-            onClick={() => onSuggest(s)}
-            className="btn-ghost !text-[12px] !py-1.5 rise"
-            style={{ animationDelay: `${0.35 + i * 0.07}s` }}
-          >
-            {s}
-          </button>
-        ))}
+      <div className="hero-panel tex-marble px-10 py-14">
+        <div className="relative z-10">
+          <span className="bolt float-y text-3xl text-ink inline-block mb-5" />
+          <h1 className="font-display text-[34px] leading-tight tracking-tight">Welcome to AgentDesk</h1>
+          <p className="text-ink-2 mt-3 text-[14px]">Deploy agents to plan, fetch, code and build — everything stays on your machine.</p>
+          <div className="flex flex-wrap justify-center gap-2 mt-7">
+            {SUGGESTIONS.map((s, i) => (
+              <button
+                key={s}
+                onClick={() => onSuggest(s)}
+                className="btn-ghost !text-[12px] !py-1.5 rise !bg-card"
+                style={{ animationDelay: `${0.35 + i * 0.07}s` }}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );

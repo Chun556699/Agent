@@ -4,6 +4,7 @@
   "private": true,
   "description": "AgentDesk — a local-first agent work platform: multi-provider model gateway, tool/plugin system, sub-agents, durable threads.",
   "type": "module",
+  "main": "desktop/main.mjs",
   "scripts": {
     "dev": "node server/index.js",
     "build": "npm --prefix web run build",

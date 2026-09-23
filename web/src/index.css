@@ -432,3 +432,138 @@ select.input { cursor: pointer; }
   font-family: var(--font-mono);
   text-shadow: none;
 }
+
+/* ── Visual polish: selection ladder, textures, palette, meter ── */
+
+:root { --ease-out: cubic-bezier(0.22, 1, 0.36, 1); }
+
+/* MonoCode-style selection intensity ladder (ink mixed onto transparent) */
+.sel-hover:hover { background: color-mix(in srgb, var(--color-ink) 5%, transparent); }
+.sel-soft { background: color-mix(in srgb, var(--color-ink) 4%, transparent); }
+.sel-mid { background: color-mix(in srgb, var(--color-ink) 6%, transparent); }
+.sel-strong { background: color-mix(in srgb, var(--color-ink) 9%, transparent); }
+
+/* Marble texture — Haze-style paper/marble moments, kept subtle */
+.tex-marble {
+  background-image: url("/textures/marble.jpg");
+  background-size: cover;
+  background-position: center;
+}
+.tex-fade {
+  /* texture visible but washed to paper: image under a translucent paper veil */
+  background-image:
+    linear-gradient(rgb(245 243 238 / 0.72), rgb(245 243 238 / 0.72)),
+    url("/textures/marble.jpg");
+  background-size: cover;
+  background-position: center;
+}
+
+/* Sidebar workspace footer card (Haze "Free plan" equivalent) */
+.workspace-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-line);
+  background: var(--color-card);
+  box-shadow: var(--shadow-card);
+}
+.workspace-mark {
+  width: 26px; height: 26px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--color-ink); color: var(--color-paper);
+  font-size: 13px;
+}
+
+/* Command palette (Ctrl+K) */
+.palette-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 15px;
+  padding: 12px 4px;
+  color: var(--color-ink);
+}
+.palette-input::placeholder { color: var(--color-ink-3); }
+.palette-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--color-ink-2);
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.12s var(--ease-out), color 0.12s;
+}
+.palette-row:hover, .palette-row.active {
+  background: color-mix(in srgb, var(--color-ink) 6%, transparent);
+  color: var(--color-ink);
+}
+.palette-kbd-hint { margin-left: auto; color: var(--color-ink-3); font-size: 10px; font-family: var(--font-mono); }
+
+/* Composer chips row + context meter */
+.meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  font-family: var(--font-mono);
+  color: var(--color-ink-3);
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--color-line);
+  background: var(--color-card);
+}
+.meter-bar {
+  width: 36px; height: 4px; border-radius: 2px;
+  background: var(--color-fill-2);
+  overflow: hidden;
+}
+.meter-bar > i {
+  display: block; height: 100%;
+  background: var(--color-run);
+  border-radius: 2px;
+  transition: width 0.5s var(--ease-out);
+}
+
+/* Welcome hero texture panel */
+.hero-panel {
+  position: relative;
+  border-radius: 18px;
+  border: 1px solid var(--color-line);
+  overflow: hidden;
+  box-shadow: 0 12px 40px rgb(28 26 22 / 0.07);
+}
+.hero-panel::after {
+  /* paper veil keeps text contrast over the marble */
+  content: "";
+  position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgb(245 243 238 / 0.55), rgb(245 243 238 / 0.85));
+}
+
+/* Sidebar primary action rows (New thread / Search) */
+.sidebar-action {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 12px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  color: var(--color-ink-2);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 0.12s var(--ease-out), color 0.12s;
+}
+.sidebar-action:hover {
+  background: color-mix(in srgb, var(--color-ink) 5%, transparent);
+  color: var(--color-ink);
+}
+.sidebar-action .kbd { font-size: 9px; }
