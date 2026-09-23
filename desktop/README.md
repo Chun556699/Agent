@@ -16,7 +16,9 @@ npm --prefix desktop start                  # add --dev for detached DevTools
 PATH, or `AGENTDESK_NODE` pointing at a Node ≥22 binary), waits for
 `/api/health`, then swaps the splash for the app at `http://127.0.0.1:8787`.
 Packaged builds reuse the Electron binary itself in `ELECTRON_RUN_AS_NODE`
-mode, so installers have no Node dependency.
+mode, so installers have no Node dependency. This is why the shell pins
+Electron ≥44: its bundled Node is v24, which includes `node:sqlite`
+(Electron ≤36 ships Node 20 and cannot run the server).
 
 ## Desktop features
 
@@ -75,6 +77,8 @@ custom titlebar only when that bridge exists, so browser usage stays clean.
 ## Notes
 
 - Electron + electron-builder are devDependencies here and are NOT vendored —
-  `npm --prefix desktop install` downloads them once.
+  `npm --prefix desktop install` downloads them once (if `dist/` is missing,
+  run `node node_modules/electron/install.js` — postinstall can be skipped by
+  some npm configs).
 - The web UI works fully in a browser without this shell; the desktop app
   only adds native window chrome and the features above.
