@@ -11,9 +11,14 @@ description: How to run and end-to-end test the AgentDesk app on this Windows bo
 - Data dir on Windows resolves to `C:\Users\Administrator\AppData\Local\Temp\agentdesk-data` (NOT `/tmp` for tools that need a real path — e.g. `node:sqlite` cannot open POSIX `/tmp/...`; use the `C:/...` form).
 - DB file: `<datadir>/agentdesk.db` (node:sqlite). Inspect/recover with `node.exe -e "const {DatabaseSync}=require('node:sqlite'); ..."`.
 
-## Browser
+## Browser / Desktop shell
 - Only **Edge** is installed (no Chrome/Firefox). `read_dom`/`browser_console` are unavailable — rely on screenshots/zoom.
-- The app's `Ctrl+N` shortcut is hijacked by Edge (new window); use the sidebar `+` next to THREADS instead.
+- The app's `Ctrl+N` shortcut is hijacked by Edge (new window); use the sidebar `+` next to THREADS instead. The `Ctrl N new thread` hint is intentionally rendered ONLY inside the Electron shell (`window.agentdeskDesktop` gate) — seeing it means you're in Electron, not a bug.
+- The **Electron shell may already be running** (check `tasklist electron.exe`) — it has no address bar; custom titlebar (bolt + AgentDesk + thin Min/Max/Close) is inside the page.
+- Launch it: `./desktop/node_modules/electron/dist/electron.exe ./desktop` from repo root (electron is preinstalled under `desktop/node_modules`; `desktop/package.json` devDep `electron@^33`).
+- **Frameless Electron has no reload shortcut** — to remount/reload a thread, click another thread then back (equivalent to F5).
+- Window-controls test: titlebar Min/Max-Restore(Square↔Copy tooltip flip)/Close. Default geometry is 1280×840 > the 1024×768 display, so a "restored" window still fills the screen — judge the toggle by the tooltip/state flip, not size.
+- Embedded-server lifecycle test: kill the running backend, launch electron with `AGENTDESK_NODE=C:/hostedtoolcache/node/24.0.1/x64/node.exe AGENTDESK_DATA_DIR=/tmp/agentdesk-data` → it spawns its own server → close window → port 8787 must die (killServer on window-all-closed/before-quit). Without `AGENTDESK_NODE` it spawns PATH `node` (v20 → `node:sqlite` import fails) → ~15s → `dialog.showErrorBox` + quit — the intended failure path.
 - Mock provider is the default and needs no keys.
 
 ## Exercising the agent (offline mock keywords, last user msg)
