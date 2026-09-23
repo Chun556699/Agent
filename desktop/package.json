@@ -7,9 +7,59 @@
   "main": "main.mjs",
   "scripts": {
     "start": "electron .",
-    "dev": "electron . --dev"
+    "dev": "electron . --dev",
+    "dist": "electron-builder",
+    "dist:dir": "electron-builder --dir"
   },
   "devDependencies": {
-    "electron": "^33.0.0"
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.agentdesk.app",
+    "productName": "AgentDesk",
+    "directories": {
+      "app": "..",
+      "output": "dist"
+    },
+    "files": [
+      "desktop/main.mjs",
+      "desktop/preload.mjs",
+      "desktop/splash.html",
+      "desktop/assets/**",
+      "server/**",
+      "web/dist/**",
+      "plugins/**",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "server/**",
+      "web/dist/**",
+      "plugins/**"
+    ],
+    "win": {
+      "target": ["nsis", "portable"],
+      "icon": "desktop/assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "AgentDesk"
+    },
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "desktop/assets/icon.png"
+    },
+    "linux": {
+      "target": ["AppImage"],
+      "category": "Utility",
+      "icon": "desktop/assets/icon.png"
+    },
+    "protocols": [
+      {
+        "name": "AgentDesk",
+        "schemes": ["agentdesk"]
+      }
+    ]
   }
 }

@@ -53,6 +53,14 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [createThread]);
 
+  // Desktop shell deep links — agentdesk://thread/<id>
+  useEffect(() => {
+    return window.agentdeskDesktop?.onDeepLink((url) => {
+      const m = url.match(/^agentdesk:\/\/thread\/([\w-]+)/);
+      if (m) { setCurrent(m[1]); setPage("chat"); }
+    });
+  }, []);
+
   const deleteThread = async (id: string) => {
     await api.del(`/api/threads/${id}`);
     if (current === id) setCurrent(null);
