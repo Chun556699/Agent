@@ -10,8 +10,12 @@ const URL_ = `http://127.0.0.1:${PORT}`;
 
 let server = null;
 
+// node binary for the embedded server: AGENTDESK_NODE env override (dev
+// boxes), else plain `node` from PATH.
+const NODE_BIN = process.env.AGENTDESK_NODE || "node";
+
 function startServer() {
-  server = spawn(process.execPath.replace(/electron(\.exe)?$/i, "node$1"), [join(ROOT, "server/index.js")], {
+  server = spawn(NODE_BIN, [join(ROOT, "server/index.js")], {
     cwd: ROOT,
     env: { ...process.env },
     stdio: "inherit",
@@ -19,13 +23,18 @@ function startServer() {
   server.on("exit", (code) => console.log(`agentdesk server exited (${code})`));
 }
 
+async function serverIsUp() {
+  try {
+    return (await fetch(`${URL_}/api/health`)).ok;
+  } catch {
+    return false;
+  }
+}
+
 async function waitForServer(timeoutMs = 15_000) {
   const t0 = Date.now();
   while (Date.now() - t0 < timeoutMs) {
-    try {
-      const res = await fetch(`${URL_}/api/health`);
-      if (res.ok) return;
-    } catch { /* not up yet */ }
+    if (await serverIsUp()) return;
     await new Promise((r) => setTimeout(r, 250));
   }
   throw new Error("AgentDesk server did not start");
@@ -59,7 +68,9 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  startServer();
+  // Reuse an already-running AgentDesk server (e.g. dev box); only spawn
+  // our own when nothing is listening yet.
+  if (!(await serverIsUp())) startServer();
   await waitForServer();
   createWindow();
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
