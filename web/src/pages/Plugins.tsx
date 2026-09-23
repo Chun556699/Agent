@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api } from "../api";
 import { useFetch } from "../lib/hooks";
+import { Switch, Tip } from "../components/ui";
 import type { InstalledPlugin, PluginEntry } from "../types";
 
 type MarketData = {
@@ -96,10 +97,15 @@ function MarketCard({ e, inst, onChanged }: { e: PluginEntry; inst?: InstalledPl
           </button>
         ) : (
           <>
-            <button disabled={busy} onClick={() => act(() => api.post(`/api/plugins/${e.id}/toggle`, { enabled: !inst.enabled }))}
-              className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors disabled:opacity-40 ${inst.enabled ? "border-ink text-ink" : "border-line text-ink-3"}`}>
-              {inst.enabled ? "Enabled" : "Disabled"}
-            </button>
+            <Tip content={inst.enabled ? "Disable plugin" : "Enable plugin"} side="top">
+              <span className="inline-flex">
+                <Switch
+                  checked={inst.enabled}
+                  disabled={busy}
+                  onChecked={(on) => act(() => api.post(`/api/plugins/${e.id}/toggle`, { enabled: on }))}
+                />
+              </span>
+            </Tip>
             <button disabled={busy} onClick={() => act(() => api.del(`/api/plugins/${e.id}`))}
               className="btn-mini !text-err">
               Uninstall

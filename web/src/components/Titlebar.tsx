@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Copy, Minus, Square, X } from "lucide-react";
 
 type DesktopBridge = {
   minimize: () => void;
@@ -39,23 +40,25 @@ export function Titlebar() {
       <div className="flex-1" />
       {!isMac && (
         <div className="flex items-stretch h-full" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
-          <WinBtn label="–" title="Minimize" onClick={d.minimize} />
-          <WinBtn label={maximized ? "❐" : "□"} title={maximized ? "Restore" : "Maximize"} onClick={d.toggleMaximize} />
-          <WinBtn label="×" title="Close" onClick={d.close} hoverClass="hover:!bg-[#c42b1c] hover:text-white" />
+          <WinBtn title="Minimize" onClick={d.minimize}><Minus size={14} /></WinBtn>
+          <WinBtn title={maximized ? "Restore" : "Maximize"} onClick={d.toggleMaximize}>
+            {maximized ? <Copy size={11} /> : <Square size={11} />}
+          </WinBtn>
+          <WinBtn title="Close" onClick={d.close} hoverClass="hover:!bg-[#c42b1c] hover:text-white"><X size={15} /></WinBtn>
         </div>
       )}
     </div>
   );
 }
 
-function WinBtn({ label, title, onClick, hoverClass }: { label: string; title: string; onClick: () => void; hoverClass?: string }) {
+function WinBtn({ children, title, onClick, hoverClass }: { children: React.ReactNode; title: string; onClick: () => void; hoverClass?: string }) {
   return (
     <button
       title={title}
       onClick={onClick}
-      className={`w-11 h-full text-ink-2 text-[13px] transition-colors hover:bg-fill ${hoverClass ?? ""}`}
+      className={`w-11 h-full text-ink-2 flex items-center justify-center transition-colors hover:bg-fill ${hoverClass ?? ""}`}
     >
-      {label}
+      {children}
     </button>
   );
 }

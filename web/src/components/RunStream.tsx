@@ -1,5 +1,9 @@
-import { useEffect, useReducer, useRef } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
+import { Bot, ChevronRight } from "lucide-react";
 import { api, streamRun } from "../api";
+import { Markdown } from "./Markdown";
+import { Orb, Dots, Ticker } from "./fx";
+import { cx } from "./ui";
 import type { RunEvent } from "../types";
 
 type Block =
@@ -72,6 +76,8 @@ export function RunStream({ runId, compact, onStatusChange }: { runId: string; c
   const [state, dispatch] = useReducer(reducer, { blocks: [], status: "running", usage: { inputTokens: 0, outputTokens: 0 } });
   const boxRef = useRef<HTMLDivElement>(null);
   const lastStatus = useRef("");
+  const live = state.status === "running" || state.status === "awaiting_approval";
+  const lastIdx = state.blocks.length - 1;
 
   useEffect(() => {
     return streamRun(runId, (ev) => dispatch(ev as RunEvent));
@@ -92,11 +98,14 @@ export function RunStream({ runId, compact, onStatusChange }: { runId: string; c
 
   return (
     <div ref={boxRef} className={compact ? "space-y-2" : "space-y-3"}>
-      {state.blocks.map((b, i) => <BlockView key={i} b={b} compact={compact} />)}
+      {state.blocks.map((b, i) => (
+        <BlockView key={i} b={b} compact={compact} live={live} last={i === lastIdx} />
+      ))}
       {state.status === "running" && (
-        <div className="flex items-center gap-2 text-[12px] text-ink-3">
-          <span className="streaming-dot w-1.5 h-1.5 rounded-full bg-run" />
-          working…
+        <div className="flex items-center gap-2.5 text-[12px] text-ink-3">
+          <Orb small />
+          <span className="shimmer-text">working</span>
+          <Dots />
         </div>
       )}
       {state.status === "awaiting_approval" && (
@@ -105,19 +114,31 @@ export function RunStream({ runId, compact, onStatusChange }: { runId: string; c
           waiting for approval
         </div>
       )}
-      {state.status !== "running" && state.status !== "awaiting_approval" && !compact && (
-        <div className="text-[11px] text-ink-3 pt-1">
-          {state.status}{state.usage.inputTokens ? ` · ${state.usage.inputTokens + state.usage.outputTokens} tokens` : ""}
+      {!live && !compact && (
+        <div className="text-[11px] text-ink-3 pt-1 flex items-center gap-1.5">
+          {state.status}
+          {state.usage.inputTokens + state.usage.outputTokens > 0 && (
+            <>
+              <span className="opacity-50">·</span>
+              <Ticker value={state.usage.inputTokens + state.usage.outputTokens} className="font-mono" />
+              <span>tokens</span>
+            </>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-function BlockView({ b, compact }: { b: Block; compact?: boolean }) {
+function BlockView({ b, compact, live, last }: { b: Block; compact?: boolean; live: boolean; last: boolean }) {
   switch (b.kind) {
     case "text":
-      return <p className={`whitespace-pre-wrap leading-relaxed ${compact ? "text-[13px]" : "text-[14px]"}`}>{b.text}</p>;
+      return (
+        <div className={compact ? "text-[13px]" : "text-[14px]"}>
+          <Markdown text={b.text} />
+          {live && last && <span className="stream-caret" />}
+        </div>
+      );
     case "tool":
       return <ToolCard b={b} />;
     case "approval":
@@ -130,22 +151,38 @@ function BlockView({ b, compact }: { b: Block; compact?: boolean }) {
 }
 
 function ToolCard({ b }: { b: Extract<Block, { kind: "tool" }> }) {
-  const dot = b.ok === undefined ? "bg-run streaming-dot" : b.ok ? "bg-ok" : b.denied ? "bg-warn" : "bg-err";
+  const running = b.ok === undefined;
+  const hasBody = !!(b.result || b.error);
+  const [open, setOpen] = useState(false);
+  const dot = running ? "bg-run streaming-dot" : b.ok ? "bg-ok" : b.denied ? "bg-warn" : "bg-err";
+
   return (
-    <div className="card px-3.5 py-2.5 text-[12px] rise">
-      <div className="flex items-center gap-2">
-        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} />
+    <div className={cx("card px-3.5 py-2.5 text-[12px] rise", running && "card-live")}>
+      <button
+        className={cx("flex w-full items-center gap-2 text-left", hasBody && "cursor-pointer")}
+        onClick={() => hasBody && setOpen((o) => !o)}
+      >
+        <span className={cx("w-1.5 h-1.5 rounded-full shrink-0", dot)} />
         <code className="font-mono text-[12px] font-medium">{b.name}</code>
-        <span className="text-ink-3 truncate font-mono text-[11px]">{JSON.stringify(b.args)?.slice(0, 90)}</span>
+        <span className="text-ink-3 truncate font-mono text-[11px] flex-1">
+          {JSON.stringify(b.args)?.slice(0, 90)}
+        </span>
+        {hasBody && (
+          <ChevronRight size={13} className={cx("chev text-ink-3 shrink-0", open && "open")} />
+        )}
+      </button>
+      <div className={cx("expand", open && "open")}>
+        <div className="expand-inner">
+          <div className="pt-1.5">
+            <div className="text-[10px] uppercase tracking-wider text-ink-3 mb-1">
+              {b.ok ? "result" : b.denied ? "denied" : "error"}
+            </div>
+            <pre className="text-[11px] text-ink-2 max-h-48 overflow-y-auto">
+              {(b.result || b.error)?.slice(0, 4000)}
+            </pre>
+          </div>
+        </div>
       </div>
-      {(b.result || b.error) && (
-        <details className="mt-1.5">
-          <summary className="cursor-pointer text-ink-3 hover:text-ink text-[11px]">
-            {b.ok ? "result" : b.denied ? "denied" : "error"}
-          </summary>
-          <pre className="mt-1 text-[11px] text-ink-2 max-h-48 overflow-y-auto">{(b.result || b.error)?.slice(0, 4000)}</pre>
-        </details>
-      )}
     </div>
   );
 }
@@ -156,7 +193,7 @@ export function ApprovalCard({ b, onDecided }: { b: { approvalId: string; tool: 
     onDecided?.();
   };
   return (
-    <div className="card px-4 py-3 rise border-l-2" style={{ borderLeftColor: "var(--color-warn)" }}>
+    <div className="card px-4 py-3 rise pulse-ring border-l-2" style={{ borderLeftColor: "var(--color-warn)" }}>
       <div className="flex items-center gap-2">
         <span className="w-1.5 h-1.5 rounded-full bg-warn streaming-dot" />
         <span className="text-[13px] font-medium">Approve <code className="font-mono">{b.tool}</code>?</span>
@@ -173,12 +210,17 @@ export function ApprovalCard({ b, onDecided }: { b: { approvalId: string; tool: 
 }
 
 function SubagentCard({ b }: { b: Extract<Block, { kind: "subagent" }> }) {
+  const running = !b.status;
   return (
-    <div className="card px-4 py-3 rise">
+    <div className={cx("card px-4 py-3 rise", running && "card-live")}>
       <div className="flex items-center gap-2 text-[12px]">
-        <span className="text-run">⬡</span>
+        <Bot size={14} className="text-run shrink-0" />
         <span className="font-medium">Sub-agent · {b.agentName}</span>
-        {b.status && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-fill text-ink-2">{b.status}</span>}
+        {b.status ? (
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-fill text-ink-2">{b.status}</span>
+        ) : (
+          <Dots />
+        )}
       </div>
       <div className="text-[12px] text-ink-2 mt-0.5 line-clamp-2">{b.task}</div>
       <div className="mt-2 pl-3 border-l-2 border-line">

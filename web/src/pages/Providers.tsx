@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { CheckCircle2, XCircle } from "lucide-react";
 import { api } from "../api";
 import { useFetch } from "../lib/hooks";
+import { Switch, Tip } from "../components/ui";
 import type { Provider } from "../types";
 
 export function ProvidersPage() {
@@ -64,12 +66,9 @@ function ProviderCard({ p, onChanged }: { p: Provider; onChanged: () => void }) 
       <div className="flex items-center gap-2">
         <span className="font-medium text-[14px] flex-1">{p.label}</span>
         <span className="text-[10px] px-2 py-0.5 rounded-full bg-fill text-ink-2 font-mono">{p.format}</span>
-        <button
-          onClick={toggle}
-          className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${p.enabled ? "border-ink text-ink" : "border-line text-ink-3"}`}
-        >
-          {p.enabled ? "on" : "off"}
-        </button>
+        <Tip content={p.enabled ? "Disable provider" : "Enable provider"} side="left">
+          <span className="inline-flex"><Switch checked={p.enabled} onChecked={() => toggle()} /></span>
+        </Tip>
       </div>
 
       {p.keyRequired && (
@@ -99,7 +98,10 @@ function ProviderCard({ p, onChanged }: { p: Provider; onChanged: () => void }) 
         <button onClick={save} disabled={busy} className="btn-ink !text-[12px] !py-1.5">Save</button>
         <button onClick={test} disabled={busy || !p.configured} className="btn-ghost !text-[12px] !py-1.5">Test connection</button>
         {testMsg && (
-          <span className={`text-[11px] truncate ${testMsg.ok ? "text-ok" : "text-err"}`}>{testMsg.text}</span>
+          <span className={`text-[11px] truncate flex items-center gap-1 ${testMsg.ok ? "text-ok" : "text-err"}`}>
+            {testMsg.ok ? <CheckCircle2 size={12} /> : <XCircle size={12} />}
+            {testMsg.text}
+          </span>
         )}
       </div>
     </div>

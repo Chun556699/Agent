@@ -1,14 +1,26 @@
+import {
+  Activity,
+  Bot,
+  BrainCircuit,
+  Ellipsis,
+  MessagesSquare,
+  Plug,
+  Plus,
+  Puzzle,
+  Trash2,
+} from "lucide-react";
+import { Menu, MenuItem, Tip } from "./ui";
 import type { Thread } from "../types";
 
 type Page = "chat" | "agents" | "plugins" | "providers" | "memory" | "activity";
 
-const NAV: { id: Page; label: string; icon: string }[] = [
-  { id: "chat", label: "Chat", icon: "◈" },
-  { id: "agents", label: "Agents", icon: "⬡" },
-  { id: "plugins", label: "Plugins", icon: "▦" },
-  { id: "providers", label: "Providers", icon: "⌁" },
-  { id: "memory", label: "Memory", icon: "◔" },
-  { id: "activity", label: "Activity", icon: "≣" },
+const NAV: { id: Page; label: string; icon: typeof MessagesSquare }[] = [
+  { id: "chat", label: "Chat", icon: MessagesSquare },
+  { id: "agents", label: "Agents", icon: Bot },
+  { id: "plugins", label: "Plugins", icon: Puzzle },
+  { id: "providers", label: "Providers", icon: Plug },
+  { id: "memory", label: "Memory", icon: BrainCircuit },
+  { id: "activity", label: "Activity", icon: Activity },
 ];
 
 export function Sidebar({
@@ -41,7 +53,11 @@ export function Sidebar({
                 : "text-ink-2 hover:bg-fill hover:text-ink border border-transparent"
             }`}
           >
-            <span className={`w-4 text-center ${page === n.id ? "text-ink" : "text-ink-3"}`}>{n.icon}</span>
+            <n.icon
+              size={15}
+              strokeWidth={page === n.id ? 2 : 1.75}
+              className={page === n.id ? "text-ink" : "text-ink-3"}
+            />
             {n.label}
           </button>
         ))}
@@ -49,32 +65,41 @@ export function Sidebar({
 
       <div className="mt-6 px-5 flex items-center justify-between">
         <span className="text-[11px] font-medium uppercase tracking-wider text-ink-3">Threads</span>
-        <button
-          onClick={onNew}
-          className="text-ink-3 hover:text-ink text-sm leading-none transition-colors"
-          title="New thread (Ctrl+N)"
-        >
-          +
-        </button>
+        <Tip content="New thread (Ctrl+N)" side="right">
+          <button
+            onClick={onNew}
+            className="text-ink-3 hover:text-ink transition-colors -mr-1 p-0.5 rounded"
+          >
+            <Plus size={15} />
+          </button>
+        </Tip>
       </div>
 
       <div className="mt-2 flex-1 overflow-y-auto px-3 pb-3 space-y-px">
         {threads.map((t) => (
           <div
             key={t.id}
-            className={`group flex items-center gap-2 px-3 py-[7px] rounded-lg text-[13px] cursor-pointer transition-colors ${
+            className={`group flex items-center gap-1.5 px-3 py-[7px] rounded-lg text-[13px] cursor-pointer transition-colors ${
               current === t.id ? "bg-card border border-line shadow-card text-ink" : "text-ink-2 hover:bg-fill hover:text-ink border border-transparent"
             }`}
             onClick={() => onSelect(t.id)}
           >
             <span className="truncate flex-1">{t.title || "New thread"}</span>
-            <button
-              className="opacity-0 group-hover:opacity-100 text-ink-3 hover:text-err transition-opacity text-sm leading-none"
-              onClick={(e) => { e.stopPropagation(); onDelete(t.id); }}
-              title="Delete thread"
+            <Menu
+              trigger={
+                <button
+                  className="opacity-0 group-hover:opacity-100 text-ink-3 hover:text-ink transition-opacity p-0.5 rounded data-[state=open]:opacity-100"
+                  onClick={(e) => e.stopPropagation()}
+                  aria-label="Thread options"
+                >
+                  <Ellipsis size={14} />
+                </button>
+              }
             >
-              ×
-            </button>
+              <MenuItem destructive onSelect={() => onDelete(t.id)}>
+                <Trash2 size={12} /> Delete thread
+              </MenuItem>
+            </Menu>
           </div>
         ))}
         {threads.length === 0 && (

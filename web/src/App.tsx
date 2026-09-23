@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Tooltip as RTooltip } from "radix-ui";
 import { api } from "./api";
 import { Sidebar } from "./components/Sidebar";
 import { Titlebar } from "./components/Titlebar";
@@ -54,6 +55,7 @@ export default function App() {
   };
 
   return (
+    <RTooltip.Provider>
     <div className="h-full flex flex-col bg-paper text-ink">
       <Titlebar />
       <div className="flex-1 flex min-h-0">
@@ -80,6 +82,7 @@ export default function App() {
       </main>
       </div>
     </div>
+    </RTooltip.Provider>
   );
 }
 

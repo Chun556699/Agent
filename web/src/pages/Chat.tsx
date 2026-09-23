@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from "react";
+import { ArrowUp, Square } from "lucide-react";
 import { api } from "../api";
 import { useFetch } from "../lib/hooks";
 import { RunStream, ApprovalCard } from "../components/RunStream";
 import { Inspector } from "../components/Inspector";
+import { Markdown } from "../components/Markdown";
+import { PillSelect, Tip, cx } from "../components/ui";
+import { Orb } from "../components/fx";
 import type { Agent, Message, Provider } from "../types";
 
 type ThreadDetail = {
@@ -39,6 +43,7 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
   const models = activeProvider?.models ?? [];
   const lastRunId = data?.runs[data.runs.length - 1]?.id;
   const inspectRunId = liveRunId ?? lastRunId ?? null;
+  const running = liveRunId && !["completed", "failed", "cancelled"].includes(liveStatus);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -63,16 +68,27 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
     <div className="flex-1 flex min-w-0">
       <div className="flex-1 flex flex-col min-w-0">
         <header className="h-13 px-5 flex items-center gap-2.5 border-b border-line shrink-0">
-          <select className="input !py-1.5 !px-2.5 text-[12px] !rounded-full w-36" value={agentId} onChange={(e) => setAgentId(e.target.value)}>
-            {(agentsData?.agents ?? []).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
-          <select className="input !py-1.5 !px-2.5 text-[12px] !rounded-full w-32" value={providerId} onChange={(e) => { setProviderId(e.target.value); setModel(""); }}>
-            {providers.filter((p) => p.configured).map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
-          </select>
-          <select className="input !py-1.5 !px-2.5 text-[12px] !rounded-full w-44" value={model} onChange={(e) => setModel(e.target.value)}>
-            <option value="">default model</option>
-            {models.map((m) => <option key={m} value={m}>{m}</option>)}
-          </select>
+          <PillSelect
+            className="w-40"
+            value={agentId}
+            onValue={setAgentId}
+            options={(agentsData?.agents ?? []).map((a) => ({ value: a.id, label: a.name }))}
+            placeholder="Agent"
+          />
+          <PillSelect
+            className="w-36"
+            value={providerId}
+            onValue={(v) => { setProviderId(v); setModel(""); }}
+            options={providers.filter((p) => p.configured).map((p) => ({ value: p.id, label: p.label }))}
+            placeholder="Provider"
+          />
+          <PillSelect
+            className="w-44"
+            value={model}
+            onValue={setModel}
+            options={[{ value: "", label: "default model" }, ...models.map((m) => ({ value: m, label: m }))]}
+            placeholder="Model"
+          />
           <div className="ml-auto flex items-center gap-2">
             {inspectRunId && (
               <button onClick={() => setInspector((v) => !v)} className={`btn-mini ${inspector ? "!bg-ink !text-paper !border-ink" : ""}`}>
@@ -116,7 +132,13 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
 
         <div className="shrink-0 px-6 pb-5 pt-2">
           <div className="max-w-2xl mx-auto">
-            <div className="card px-4 py-3" style={{ boxShadow: "var(--shadow-pop)" }}>
+            <div
+              className={cx(
+                "card px-4 py-3 transition-shadow focus-within:border-ink-3",
+                running && "card-live",
+              )}
+              style={{ boxShadow: "var(--shadow-pop)" }}
+            >
               <textarea
                 className="w-full bg-transparent resize-none text-[14px] leading-relaxed outline-none placeholder:text-ink-3"
                 rows={Math.min(6, Math.max(1, input.split("\n").length))}
@@ -128,12 +150,34 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
                 }}
               />
               <div className="flex items-center mt-1">
-                <span className="text-[11px] text-ink-3">Enter to send · Shift+Enter newline</span>
-                <div className="ml-auto">
-                  {liveRunId && liveStatus !== "completed" && liveStatus !== "failed" && liveStatus !== "cancelled" ? (
-                    <button onClick={stop} className="btn-ghost !py-1.5 !px-4 !text-[12px]">Stop</button>
+                <span className="text-[11px] text-ink-3 flex items-center gap-2">
+                  {running ? (
+                    <>
+                      <Orb small />
+                      <span className="shimmer-text">agent working</span>
+                    </>
                   ) : (
-                    <button onClick={() => send()} disabled={!input.trim()} className="btn-ink !py-1.5 !px-4 !text-[12px]">Send ↑</button>
+                    "Enter to send · Shift+Enter newline"
+                  )}
+                </span>
+                <div className="ml-auto">
+                  {running ? (
+                    <Tip content="Stop this run" side="left">
+                      <button
+                        onClick={stop}
+                        className="w-8 h-8 rounded-full bg-card border border-line flex items-center justify-center text-ink-2 hover:text-ink hover:bg-fill transition-colors"
+                      >
+                        <Square size={11} fill="currentColor" />
+                      </button>
+                    </Tip>
+                  ) : (
+                    <button
+                      onClick={() => send()}
+                      disabled={!input.trim()}
+                      className="w-8 h-8 rounded-full bg-ink text-paper flex items-center justify-center transition-all hover:opacity-80 active:scale-95 disabled:opacity-25"
+                    >
+                      <ArrowUp size={14} strokeWidth={2.5} />
+                    </button>
                   )}
                 </div>
               </div>
@@ -149,12 +193,19 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
 function EmptyState({ onSuggest }: { onSuggest: (s: string) => void }) {
   return (
     <div className="py-16 text-center">
-      <span className="bolt text-3xl text-ink inline-block mb-5" />
+      <span className="bolt float-y text-3xl text-ink inline-block mb-5" />
       <h1 className="font-display text-[34px] leading-tight tracking-tight">Welcome to AgentDesk</h1>
       <p className="text-ink-2 mt-3 text-[14px]">Deploy agents to plan, fetch, code and build — everything stays on your machine.</p>
       <div className="flex flex-wrap justify-center gap-2 mt-7">
-        {SUGGESTIONS.map((s) => (
-          <button key={s} onClick={() => onSuggest(s)} className="btn-ghost !text-[12px] !py-1.5">{s}</button>
+        {SUGGESTIONS.map((s, i) => (
+          <button
+            key={s}
+            onClick={() => onSuggest(s)}
+            className="btn-ghost !text-[12px] !py-1.5 rise"
+            style={{ animationDelay: `${0.35 + i * 0.07}s` }}
+          >
+            {s}
+          </button>
         ))}
       </div>
     </div>
@@ -190,7 +241,7 @@ function HistoricMessage({ m }: { m: Message }) {
   const toolCalls = m.toolCalls ?? [];
   return (
     <div className="rise">
-      {m.content && <p className="whitespace-pre-wrap text-[14px] leading-relaxed">{m.content}</p>}
+      {m.content && <Markdown text={m.content} />}
       {toolCalls.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mt-2">
           {toolCalls.map((tc: { id: string; name: string }) => (
