@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Square } from "lucide-react";
+import { ArrowUp, ChevronRight, Square } from "lucide-react";
 import { api } from "../api";
 import { useFetch } from "../lib/hooks";
 import { RunStream, ApprovalCard } from "../components/RunStream";
 import { Inspector } from "../components/Inspector";
 import { Markdown } from "../components/Markdown";
-import { PillSelect, Tip, cx } from "../components/ui";
+import { Expandable, PillSelect, Tip, cx } from "../components/ui";
 import { Orb } from "../components/fx";
 import type { Agent, Message, Provider } from "../types";
 
@@ -212,6 +212,28 @@ function EmptyState({ onSuggest }: { onSuggest: (s: string) => void }) {
   );
 }
 
+function HistoricToolMessage({ m }: { m: Message }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="card px-3.5 py-2.5 text-[12px]">
+      <button
+        className={cx("flex w-full items-center gap-2 text-left", m.content && "cursor-pointer")}
+        onClick={() => m.content && setOpen((o) => !o)}
+      >
+        <span className="w-1.5 h-1.5 rounded-full bg-ink-3 shrink-0" />
+        <code className="font-mono text-[12px] font-medium flex-1">{m.name}</code>
+        {m.content && <ChevronRight size={13} className={cx("chev text-ink-3", open && "open")} />}
+      </button>
+      <Expandable open={open}>
+        <div className="pt-1.5">
+          <div className="text-[10px] uppercase tracking-wider text-ink-3 mb-1">result</div>
+          <pre className="text-[11px] text-ink-2 max-h-48 overflow-y-auto">{(m.content ?? "").slice(0, 4000)}</pre>
+        </div>
+      </Expandable>
+    </div>
+  );
+}
+
 function HistoricMessage({ m }: { m: Message }) {
   if (m.role === "user") {
     return (
@@ -222,22 +244,7 @@ function HistoricMessage({ m }: { m: Message }) {
       </div>
     );
   }
-  if (m.role === "tool") {
-    return (
-      <div className="card px-3.5 py-2.5 text-[12px]">
-        <div className="flex items-center gap-2">
-          <span className="w-1.5 h-1.5 rounded-full bg-ink-3 shrink-0" />
-          <code className="font-mono text-[12px] font-medium">{m.name}</code>
-        </div>
-        {m.content && (
-          <details className="mt-1.5">
-            <summary className="cursor-pointer text-ink-3 hover:text-ink text-[11px]">result</summary>
-            <pre className="mt-1 text-[11px] text-ink-2 max-h-48 overflow-y-auto">{m.content.slice(0, 4000)}</pre>
-          </details>
-        )}
-      </div>
-    );
-  }
+  if (m.role === "tool") return <HistoricToolMessage m={m} />;
   const toolCalls = m.toolCalls ?? [];
   return (
     <div className="rise">

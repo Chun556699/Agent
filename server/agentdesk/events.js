@@ -4,13 +4,16 @@ const subscribers = new Map(); // runId -> Set<fn(event)>
 
 /** Persist an event and fan it out to SSE subscribers. */
 export function emit(runId, type, data = {}) {
-  q.run(
+  const info = q.run(
     "INSERT INTO events (run_id, type, data_json) VALUES (?, ?, ?)",
     runId, type, JSON.stringify(data)
   );
+  // Live events carry their seq so clients can dedup after a reconnect:
+  // EventSource auto-reconnects and the replay would otherwise apply the
+  // same deltas twice.
   const subs = subscribers.get(runId);
   if (subs) for (const fn of subs) {
-    try { fn({ type, ...data }); } catch { /* subscriber gone */ }
+    try { fn({ seq: Number(info.lastInsertRowid), type, ...data }); } catch { /* subscriber gone */ }
   }
 }
 

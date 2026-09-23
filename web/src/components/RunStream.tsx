@@ -3,7 +3,7 @@ import { Bot, ChevronRight } from "lucide-react";
 import { api, streamRun } from "../api";
 import { Markdown } from "./Markdown";
 import { Orb, Dots, Ticker } from "./fx";
-import { cx } from "./ui";
+import { Expandable, cx } from "./ui";
 import type { RunEvent } from "../types";
 
 type Block =
@@ -80,7 +80,20 @@ export function RunStream({ runId, compact, onStatusChange }: { runId: string; c
   const lastIdx = state.blocks.length - 1;
 
   useEffect(() => {
-    return streamRun(runId, (ev) => dispatch(ev as RunEvent));
+    const lastSeq = { current: 0 };
+    const close = streamRun(runId, (ev) => {
+      // EventSource auto-reconnects on any drop; the server then replays
+      // everything — skip events we've already applied or text/tools double.
+      if (typeof ev.seq === "number") {
+        if (ev.seq <= lastSeq.current) return;
+        lastSeq.current = ev.seq;
+      }
+      dispatch(ev as RunEvent);
+      // Terminal event seen — stop the source or it retries into a loop of
+      // replay-then-close forever (costs nothing but churns the stream).
+      if (ev.type === "run_completed") close();
+    });
+    return close;
   }, [runId]);
 
   useEffect(() => {
@@ -91,10 +104,11 @@ export function RunStream({ runId, compact, onStatusChange }: { runId: string; c
   }, [state.status, onStatusChange]);
 
   // scrollIntoView reaches the enclosing chat scroller (this box rarely
-  // overflows itself) so new blocks — e.g. an approval card — stay visible.
+  // overflows itself) so streamed content — including growth of the last
+  // block, which doesn't change the count — stays visible.
   useEffect(() => {
     boxRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
-  }, [state.blocks.length]);
+  }, [state.blocks]);
 
   return (
     <div ref={boxRef} className={compact ? "space-y-2" : "space-y-3"}>
@@ -171,18 +185,16 @@ function ToolCard({ b }: { b: Extract<Block, { kind: "tool" }> }) {
           <ChevronRight size={13} className={cx("chev text-ink-3 shrink-0", open && "open")} />
         )}
       </button>
-      <div className={cx("expand", open && "open")}>
-        <div className="expand-inner">
-          <div className="pt-1.5">
-            <div className="text-[10px] uppercase tracking-wider text-ink-3 mb-1">
-              {b.ok ? "result" : b.denied ? "denied" : "error"}
-            </div>
-            <pre className="text-[11px] text-ink-2 max-h-48 overflow-y-auto">
-              {(b.result || b.error)?.slice(0, 4000)}
-            </pre>
+      <Expandable open={open}>
+        <div className="pt-1.5">
+          <div className="text-[10px] uppercase tracking-wider text-ink-3 mb-1">
+            {b.ok ? "result" : b.denied ? "denied" : "error"}
           </div>
+          <pre className="text-[11px] text-ink-2 max-h-48 overflow-y-auto">
+            {(b.result || b.error)?.slice(0, 4000)}
+          </pre>
         </div>
-      </div>
+      </Expandable>
     </div>
   );
 }

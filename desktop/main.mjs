@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -9,6 +9,7 @@ const PORT = 8787;
 const URL_ = `http://127.0.0.1:${PORT}`;
 
 let server = null;
+let win = null;
 
 // node binary for the embedded server: AGENTDESK_NODE env override (dev
 // boxes), else plain `node` from PATH.
@@ -21,6 +22,11 @@ function startServer() {
     stdio: "inherit",
   });
   server.on("exit", (code) => console.log(`agentdesk server exited (${code})`));
+}
+
+function killServer() {
+  server?.kill();
+  server = null;
 }
 
 async function serverIsUp() {
@@ -41,7 +47,7 @@ async function waitForServer(timeoutMs = 15_000) {
 }
 
 function createWindow() {
-  const win = new BrowserWindow({
+  win = new BrowserWindow({
     width: 1280,
     height: 840,
     minWidth: 900,
@@ -57,26 +63,42 @@ function createWindow() {
     },
   });
 
-  ipcMain.on("win:minimize", () => win.minimize());
-  ipcMain.on("win:toggle-maximize", () => (win.isMaximized() ? win.unmaximize() : win.maximize()));
-  ipcMain.on("win:close", () => win.close());
-  win.on("maximize", () => win.webContents.send("win:maximized", true));
-  win.on("unmaximize", () => win.webContents.send("win:maximized", false));
+  win.on("closed", () => { win = null; });
+  win.on("maximize", () => win?.webContents.send("win:maximized", true));
+  win.on("unmaximize", () => win?.webContents.send("win:maximized", false));
 
   win.loadURL(URL_);
   if (process.argv.includes("--dev")) win.webContents.openDevTools({ mode: "detach" });
 }
 
+// Window controls — registered once; re-creating the window (macOS
+// "activate") must not stack duplicate handlers on a stale window ref.
+ipcMain.on("win:minimize", () => win?.minimize());
+ipcMain.on("win:toggle-maximize", () => (win?.isMaximized() ? win.unmaximize() : win?.maximize()));
+ipcMain.on("win:close", () => win?.close());
+
 app.whenReady().then(async () => {
   // Reuse an already-running AgentDesk server (e.g. dev box); only spawn
   // our own when nothing is listening yet.
   if (!(await serverIsUp())) startServer();
-  await waitForServer();
+  try {
+    await waitForServer();
+  } catch (err) {
+    dialog.showErrorBox(
+      "AgentDesk",
+      `The embedded server did not start.\n\n${err.message}\n\nSet AGENTDESK_NODE to a Node >=22 binary if 'node' isn't on PATH.`,
+    );
+    app.quit();
+    return;
+  }
   createWindow();
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
+// Cmd+Q on macOS skips window-all-closed — kill the child on quit too.
+app.on("before-quit", killServer);
+
 app.on("window-all-closed", () => {
-  server?.kill();
+  killServer();
   if (process.platform !== "darwin") app.quit();
 });

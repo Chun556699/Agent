@@ -144,6 +144,16 @@ export function Switch({
   );
 }
 
+/* ── Expandable (animated height reveal) ── */
+
+export function Expandable({ open, children }: { open: boolean; children: React.ReactNode }) {
+  return (
+    <div className={cx("expand", open && "open")}>
+      <div className="expand-inner">{children}</div>
+    </div>
+  );
+}
+
 /* ── Dropdown menu ── */
 
 export function Menu({
