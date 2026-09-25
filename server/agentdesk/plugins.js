@@ -56,6 +56,9 @@ export const MARKETPLACE = [
 const mcpClients = new Map(); // pluginId -> McpClient
 
 function modulePath(id) {
+  // The id becomes a filename — reject separators/traversal so a crafted id
+  // can't import an arbitrary .mjs from outside the plugin directories.
+  if (!/^[\w][\w.-]*$/.test(id)) throw new HttpError(400, `Invalid plugin id '${id}'`);
   const bundled = join(ROOT, "plugins", `${id}.mjs`);
   if (existsSync(bundled)) return bundled;
   const local = join(PLUGINS_DIR, `${id}.mjs`);
@@ -70,9 +73,19 @@ export async function activatePlugin(id) {
   const spec = JSON.parse(row.spec_json || "{}");
 
   if (row.kind === "mcp") {
+    // Re-activation replaces the old client — kill it first or the
+    // spawned server process leaks each time the plugin is toggled.
+    if (mcpClients.has(id)) await deactivatePlugin(id);
     const client = new McpClient(spec);
-    await client.connect();
-    const tools = await client.listTools();
+    let tools;
+    try {
+      await client.connect();
+      tools = await client.listTools();
+    } catch (err) {
+      // A failed handshake still spawned a process — reap it.
+      client.close();
+      throw err;
+    }
     mcpClients.set(id, client);
     for (const t of tools) {
       registerTool({
@@ -89,12 +102,18 @@ export async function activatePlugin(id) {
   const mod = await import(pathToFileURL(modulePath(id)).href);
   const plugin = mod.default ?? mod;
   for (const t of plugin.tools ?? []) {
-    if (getTool(t.name)) throw new HttpError(409, `Tool '${t.name}' is already registered`);
+    const existing = getTool(t.name);
+    // Same-plugin re-activation is idempotent; another owner is a conflict.
+    if (existing && existing.pluginId !== id) {
+      throw new HttpError(409, `Tool '${t.name}' is already registered`);
+    }
+    if (existing) continue;
     registerTool({
       name: t.name,
       description: t.description ?? "",
       parameters: t.parameters ?? { type: "object", properties: {} },
       danger: t.danger ?? "confirm",
+      pluginId: id,
       handler: (args, ctx) => t.handler(args, ctx),
     });
   }

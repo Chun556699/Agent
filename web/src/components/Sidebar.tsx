@@ -1,15 +1,17 @@
+import { useState } from "react";
 import {
   Activity,
   Bot,
   BrainCircuit,
   Ellipsis,
   MessagesSquare,
+  Pencil,
   Plug,
   Plus,
   Puzzle,
   Trash2,
 } from "lucide-react";
-import { Menu, MenuItem, Tip } from "./ui";
+import { Menu, MenuItem, Modal, Tip } from "./ui";
 import type { Thread } from "../types";
 
 type Page = "chat" | "agents" | "plugins" | "providers" | "memory" | "activity";
@@ -24,7 +26,7 @@ const NAV: { id: Page; label: string; icon: typeof MessagesSquare }[] = [
 ];
 
 export function Sidebar({
-  page, setPage, threads, current, onSelect, onNew, onDelete,
+  page, setPage, threads, current, onSelect, onNew, onRename, onDelete,
 }: {
   page: Page;
   setPage: (p: Page) => void;
@@ -32,8 +34,12 @@ export function Sidebar({
   current: string | null;
   onSelect: (id: string) => void;
   onNew: () => void;
+  onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
 }) {
+  const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<Thread | null>(null);
+
   return (
     <aside className="w-64 shrink-0 flex flex-col border-r border-line bg-paper">
       <div className="px-5 pt-5 pb-4 flex items-center gap-2.5">
@@ -84,6 +90,9 @@ export function Sidebar({
             }`}
             onClick={() => onSelect(t.id)}
           >
+            {t.activeRuns > 0 && (
+              <span className="streaming-dot w-1.5 h-1.5 rounded-full bg-run shrink-0" />
+            )}
             <span className="truncate flex-1">{t.title || "New thread"}</span>
             <Menu
               trigger={
@@ -96,7 +105,10 @@ export function Sidebar({
                 </button>
               }
             >
-              <MenuItem destructive onSelect={() => onDelete(t.id)}>
+              <MenuItem onSelect={() => setRenaming({ id: t.id, title: t.title })}>
+                <Pencil size={12} /> Rename
+              </MenuItem>
+              <MenuItem destructive onSelect={() => setConfirmDelete(t)}>
                 <Trash2 size={12} /> Delete thread
               </MenuItem>
             </Menu>
@@ -113,6 +125,61 @@ export function Sidebar({
           <span className="kbd">Ctrl N</span> new thread
         </div>
       )}
+
+      <Modal
+        open={!!renaming}
+        onOpenChange={(open) => !open && setRenaming(null)}
+        title="Rename thread"
+      >
+        <input
+          autoFocus
+          className="input w-full"
+          value={renaming?.title ?? ""}
+          maxLength={120}
+          onChange={(e) => setRenaming((r) => r && { ...r, title: e.target.value })}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && renaming) {
+              onRename(renaming.id, renaming.title.trim());
+              setRenaming(null);
+            }
+          }}
+        />
+        <div className="flex justify-end gap-2 mt-4">
+          <button className="btn-ghost" onClick={() => setRenaming(null)}>Cancel</button>
+          <button
+            className="btn-ink"
+            disabled={!renaming?.title.trim()}
+            onClick={() => {
+              if (renaming) {
+                onRename(renaming.id, renaming.title.trim());
+                setRenaming(null);
+              }
+            }}
+          >
+            Save
+          </button>
+        </div>
+      </Modal>
+
+      <Modal
+        open={!!confirmDelete}
+        onOpenChange={(open) => !open && setConfirmDelete(null)}
+        title="Delete thread?"
+        description={confirmDelete ? `"${confirmDelete.title || "New thread"}" and its messages, runs and approvals are permanently removed.` : undefined}
+      >
+        <div className="flex justify-end gap-2">
+          <button className="btn-ghost" onClick={() => setConfirmDelete(null)}>Cancel</button>
+          <button
+            className="btn-ink !bg-err"
+            onClick={() => {
+              if (confirmDelete) onDelete(confirmDelete.id);
+              setConfirmDelete(null);
+            }}
+          >
+            Delete
+          </button>
+        </div>
+      </Modal>
     </aside>
   );
 }

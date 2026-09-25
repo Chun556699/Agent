@@ -66,3 +66,23 @@ test("sub-agent view only sees its own run messages", () => {
   const stats = contextStats({ threadId, runId: childRun, depth: 1 });
   assert.equal(stats.messageCount, 1);
 });
+
+test("sub-agent context stays isolated from the thread summary", () => {
+  const { threadId } = seedThread(4);
+  q.run("UPDATE threads SET summary = 'parent conversation summary' WHERE id = ?", threadId);
+  const childRun = newId("run");
+  q.run(
+    "INSERT INTO runs (id, thread_id, agent_id, parent_run_id, depth, status) VALUES (?, ?, 'researcher', NULL, 1, 'running')",
+    childRun, threadId
+  );
+  q.run(
+    "INSERT INTO messages (id, thread_id, run_id, role, content) VALUES (?, ?, ?, 'user', 'child task')",
+    newId("msg"), threadId, childRun
+  );
+  const { messages } = buildContext({ threadId, runId: childRun, depth: 1, systemPrompt: "sys" });
+  // No summary leaks into the child's view...
+  assert.ok(!messages.some((m) => typeof m.content === "string" && m.content.includes("parent conversation summary")));
+  // ...and a forced compaction doesn't overwrite the parent's summary.
+  buildContext({ threadId, runId: childRun, depth: 1, systemPrompt: "sys", budget: 100 });
+  assert.equal(q.get("SELECT summary FROM threads WHERE id = ?", threadId).summary, "parent conversation summary");
+});

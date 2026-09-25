@@ -17,6 +17,7 @@ type State = {
   blocks: Block[];
   status: string;
   usage: { inputTokens: number; outputTokens: number };
+  error?: string;
 };
 
 function reducer(state: State, ev: RunEvent): State {
@@ -63,6 +64,7 @@ function reducer(state: State, ev: RunEvent): State {
         ...state,
         status: ev.status ?? state.status,
         usage: ev.usage ?? state.usage,
+        error: typeof ev.error === "string" ? ev.error : state.error,
       };
     case "usage":
       if (!ev.usage) return state;
@@ -81,19 +83,55 @@ export function RunStream({ runId, compact, onStatusChange }: { runId: string; c
 
   useEffect(() => {
     const lastSeq = { current: 0 };
-    const close = streamRun(runId, (ev) => {
-      // EventSource auto-reconnects on any drop; the server then replays
-      // everything — skip events we've already applied or text/tools double.
-      if (typeof ev.seq === "number") {
-        if (ev.seq <= lastSeq.current) return;
-        lastSeq.current = ev.seq;
+    // Consecutive onerror callbacks mean EventSource keeps retrying — after
+    // enough of them the stream is dead (e.g. server gone), so fail the run
+    // client-side instead of leaving the UI "working" forever.
+    let consecutiveErrors = 0;
+    // Token deltas arrive per-chunk; coalesce ~40ms of them into one render.
+    let deltaBuf = "";
+    let deltaTimer: number | undefined;
+    const flushDeltas = () => {
+      window.clearTimeout(deltaTimer);
+      deltaTimer = undefined;
+      if (deltaBuf) {
+        dispatch({ type: "message_delta", delta: deltaBuf });
+        deltaBuf = "";
       }
-      dispatch(ev as RunEvent);
-      // Terminal event seen — stop the source or it retries into a loop of
-      // replay-then-close forever (costs nothing but churns the stream).
-      if (ev.type === "run_completed") close();
-    });
-    return close;
+    };
+    const close = streamRun(
+      runId,
+      (ev) => {
+        consecutiveErrors = 0;
+        // EventSource auto-reconnects on any drop; the server then replays
+        // everything — skip events we've already applied or text/tools double.
+        if (typeof ev.seq === "number") {
+          if (ev.seq <= lastSeq.current) return;
+          lastSeq.current = ev.seq;
+        }
+        if (ev.type === "message_delta") {
+          deltaBuf += ev.delta ?? "";
+          deltaTimer ??= window.setTimeout(flushDeltas, 40);
+          return;
+        }
+        flushDeltas(); // buffered text precedes every other event
+        dispatch(ev as RunEvent);
+        // Terminal event seen — stop the source or it retries into a loop of
+        // replay-then-close forever (costs nothing but churns the stream).
+        if (ev.type === "run_completed") close();
+      },
+      () => {
+        if (++consecutiveErrors > 8) {
+          close();
+          flushDeltas();
+          dispatch({
+            type: "run_completed",
+            status: "failed",
+            error: "Lost connection to the server",
+          } as RunEvent);
+        }
+      }
+    );
+    return () => { close(); flushDeltas(); };
   }, [runId]);
 
   useEffect(() => {
@@ -129,8 +167,9 @@ export function RunStream({ runId, compact, onStatusChange }: { runId: string; c
         </div>
       )}
       {!live && !compact && (
-        <div className="text-[11px] text-ink-3 pt-1 flex items-center gap-1.5">
+        <div className={cx("text-[11px] pt-1 flex items-center gap-1.5", state.status === "failed" ? "text-err" : "text-ink-3")}>
           {state.status}
+          {state.error && <span className="truncate">— {state.error}</span>}
           {state.usage.inputTokens + state.usage.outputTokens > 0 && (
             <>
               <span className="opacity-50">·</span>

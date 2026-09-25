@@ -1,5 +1,8 @@
+import "./helpers/env.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { q } from "../server/agentdesk/db.js";
+import { configureProvider } from "../server/agentdesk/providers/index.js";
 import { streamChat as openaiChat } from "../server/agentdesk/providers/openai.js";
 import { streamChat as anthropicChat } from "../server/agentdesk/providers/anthropic.js";
 import { streamChat as geminiChat } from "../server/agentdesk/providers/gemini.js";
@@ -90,6 +93,18 @@ test("gemini driver parses parts, functionCall and usageMetadata", async () => {
   } finally {
     restoreFetch();
   }
+});
+
+test("configureProvider keeps fields not present in the update", () => {
+  configureProvider("openai", { apiKey: "sk-test", baseUrl: "https://proxy.local/v1", enabled: true });
+  // A bare toggle must not wipe the custom baseUrl or the stored key.
+  configureProvider("openai", { enabled: false });
+  const row = q.get("SELECT base_url, enabled, api_key_enc FROM providers WHERE id = 'openai'");
+  assert.equal(row.base_url, "https://proxy.local/v1");
+  assert.equal(row.enabled, 0);
+  assert.ok(row.api_key_enc, "api key was dropped");
+  configureProvider("openai", { enabled: true });
+  assert.equal(q.get("SELECT enabled FROM providers WHERE id = 'openai'").enabled, 1);
 });
 
 test("openai driver raises ProviderError on http error", async () => {

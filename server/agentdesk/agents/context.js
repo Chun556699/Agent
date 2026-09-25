@@ -53,7 +53,11 @@ export function toChatMessages(rows) {
  * { messages, compacted, usage } where usage describes the context window.
  */
 export function buildContext({ threadId, runId, depth, systemPrompt, budget = DEFAULT_CONTEXT_BUDGET }) {
-  const thread = q.get("SELECT summary FROM threads WHERE id = ?", threadId);
+  // Sub-agent contexts are isolated: they never read the parent thread's
+  // rolling summary, and their own compaction must not overwrite it.
+  const thread = depth === 0
+    ? q.get("SELECT summary FROM threads WHERE id = ?", threadId)
+    : null;
   const rows = loadViewMessages({ threadId, runId, depth });
   const all = toChatMessages(rows);
   const tokens = rows.map(messageTokens);
@@ -91,7 +95,9 @@ export function buildContext({ threadId, runId, depth, systemPrompt, budget = DE
   const kept = toChatMessages(rows.slice(cut));
 
   const summary = mergeSummary(thread?.summary, dropped);
-  q.run("UPDATE threads SET summary = ? WHERE id = ?", summary, threadId);
+  if (depth === 0) {
+    q.run("UPDATE threads SET summary = ? WHERE id = ?", summary, threadId);
+  }
 
   messages.push({ role: "system", content: `Summary of earlier conversation:\n${summary}` });
   messages.push(...kept);

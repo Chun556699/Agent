@@ -21,7 +21,10 @@ export function subscribe(runId, fn) {
   let subs = subscribers.get(runId);
   if (!subs) subscribers.set(runId, (subs = new Set()));
   subs.add(fn);
-  return () => subs.delete(fn);
+  return () => {
+    subs.delete(fn);
+    if (!subs.size) subscribers.delete(runId);
+  };
 }
 
 export function replayEvents(runId) {

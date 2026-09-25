@@ -10,15 +10,20 @@ import { getAgent } from "./roles.js";
 const MAX_ITERATIONS = 12;
 const MAX_DEPTH = 3;
 
-const running = new Map(); // runId -> AbortController
+const running = new Map(); // runId -> { controller, settled }
 const pendingApprovals = new Map(); // approvalId -> { resolve, runId }
 
+/** Cancel an in-flight run. Returns true when the run was tracked here
+ * (its finally block will emit run_completed); false when no such live run
+ * exists in this process. */
 export function cancelRun(runId) {
+  let wasLive = running.has(runId);
   // Resolve this run's pending approvals first: without it the awaiting
   // run's Promise never settles on abort, and the approval row stays
   // 'pending' — an actionable card on a dead run.
   for (const [id, p] of pendingApprovals) {
     if (p.runId !== runId) continue;
+    wasLive = true;
     q.run(
       "UPDATE approvals SET status = 'cancelled', decided_at = datetime('now') WHERE id = ?",
       id
@@ -27,7 +32,21 @@ export function cancelRun(runId) {
     p.resolve(false);
     emit(runId, "approval_resolved", { approvalId: id, approved: false });
   }
-  running.get(runId)?.abort();
+  running.get(runId)?.controller.abort();
+  return wasLive;
+}
+
+/** Cancel every in-flight run belonging to a thread (thread delete, etc.).
+ * Awaits each run's finally block — its last writes land before the caller
+ * deletes the rows, so nothing is orphaned mid-flight. */
+export async function cancelRunsForThread(threadId) {
+  const ids = q
+    .all("SELECT id FROM runs WHERE thread_id = ? AND status IN ('running','awaiting_approval')", threadId)
+    .map((r) => r.id);
+  const waits = ids.map((id) => running.get(id)?.settled).filter(Boolean);
+  for (const id of ids) cancelRun(id);
+  await Promise.all(waits);
+  return ids;
 }
 
 function autoApproveMap() {
@@ -56,13 +75,15 @@ export function decideApproval(approvalId, { approved, alwaysAllow = false }) {
     const row = q.get("SELECT tool FROM approvals WHERE id = ?", approvalId);
     if (row) setAutoApprove(row.tool, true);
   }
-  q.run(
-    "UPDATE approvals SET status = ?, decided_at = datetime('now') WHERE id = ?",
+  // Only a still-pending approval may transition — decided/expired/cancelled
+  // rows are history, not actions waiting to be flipped.
+  const info = q.run(
+    "UPDATE approvals SET status = ?, decided_at = datetime('now') WHERE id = ? AND status = 'pending'",
     approved ? "approved" : "denied", approvalId
   );
   pending?.resolve(!!approved);
   pendingApprovals.delete(approvalId);
-  return !!pending;
+  return !!pending || info.changes > 0;
 }
 
 function requestApproval({ runId, toolCallId, tool, args, danger }) {
@@ -73,7 +94,7 @@ function requestApproval({ runId, toolCallId, tool, args, danger }) {
   );
   q.run("UPDATE runs SET status = 'awaiting_approval' WHERE id = ?", runId);
   emit(runId, "approval_request", { approvalId: id, toolCallId, tool, args, danger });
-  return new Promise((resolve) => pendingApprovals.set(id, { resolve, runId }));
+  return { id, decision: new Promise((resolve) => pendingApprovals.set(id, { resolve, runId })) };
 }
 
 function persistMessage({ threadId, runId, role, content, toolCalls, toolCallId, name }) {
@@ -95,10 +116,13 @@ async function executeToolCall(tc, ctx) {
   }
   const auto = autoApproveMap();
   if (tool.danger !== "safe" && !auto[tool.name]) {
-    const approved = await requestApproval({
+    const { id: approvalId, decision } = requestApproval({
       runId: ctx.runId, toolCallId: tc.id, tool: tc.name, args: tc.arguments, danger: tool.danger,
     });
-    emit(ctx.runId, "approval_resolved", { toolCallId: tc.id, tool: tc.name, approved });
+    const approved = await decision;
+    // approvalId must ride along — the client matches the pending approval
+    // card by it, and without it the card stays pulsing after the run resumes.
+    emit(ctx.runId, "approval_resolved", { approvalId, toolCallId: tc.id, tool: tc.name, approved });
     q.run("UPDATE runs SET status = 'running' WHERE id = ? AND status = 'awaiting_approval'", ctx.runId);
     if (!approved) return { ok: false, error: "Tool call denied by user", denied: true };
     if (ctx.signal.aborted) throw new DOMException("aborted", "AbortError");
@@ -114,6 +138,15 @@ async function executeToolCall(tc, ctx) {
 
 function toolsFor(agent) {
   return toolSpecs(agent.tools?.length ? agent.tools : undefined);
+}
+
+/** Pre-flight validation for a would-be run — throws HttpError (400/404)
+ * synchronously so the API can reject the request instead of returning a
+ * runId for a run that instantly fails off-stream. */
+export function assertStartable({ agentId = "orchestrator", providerId, model, depth = 0 }) {
+  if (!getAgent(agentId)) throw new HttpError(404, `Unknown agent '${agentId}'`);
+  if (depth > MAX_DEPTH) throw new HttpError(400, "Maximum sub-agent depth reached");
+  resolveModel({ providerId: providerId ?? "mock", model });
 }
 
 /** Run a full agent loop for one run. Returns { runId, text, usage, status }. */
@@ -132,7 +165,9 @@ export async function startRun({
 
   const runId = presetRunId ?? newId("run");
   const controller = new AbortController();
-  running.set(runId, controller);
+  const entry = { controller };
+  entry.settled = new Promise((res) => (entry.resolve = res));
+  running.set(runId, entry);
 
   q.run(
     `INSERT INTO runs (id, thread_id, agent_id, parent_run_id, depth, status, provider_id, model)
@@ -223,6 +258,7 @@ export async function startRun({
     }
   } finally {
     running.delete(runId);
+    entry.resolve();
     q.run(
       `UPDATE runs SET status = ?, error = ?, input_tokens = ?, output_tokens = ?, ended_at = datetime('now')
        WHERE id = ?`,
