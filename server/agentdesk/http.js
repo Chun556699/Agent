@@ -1,5 +1,5 @@
 import { createReadStream, existsSync, statSync } from "node:fs";
-import { extname, join, normalize } from "node:path";
+import { extname, join, normalize, sep } from "node:path";
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -22,7 +22,10 @@ const MIME = {
 
 export function json(res, status, body) {
   const payload = JSON.stringify(body ?? null);
-  res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
+  res.writeHead(status, {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+  });
   res.end(payload);
 }
 
@@ -81,8 +84,10 @@ export function createRouter() {
       let size = 0;
       req.on("data", (c) => {
         size += c.length;
-        if (size > 10 * 1024 * 1024) reject(new HttpError(413, "Body too large"));
-        else chunks.push(c);
+        if (size > 10 * 1024 * 1024) {
+          reject(new HttpError(413, "Body too large"));
+          req.destroy();
+        } else chunks.push(c);
       });
       req.on("end", () => {
         if (!chunks.length) return resolve(undefined);
@@ -137,7 +142,9 @@ export function createStaticHandler(rootDir) {
     let pathname = decodeURIComponent(url.pathname);
     if (pathname === "/") pathname = "/index.html";
     let file = normalize(join(root, pathname));
-    if (!file.startsWith(root)) return false; // path traversal guard
+    // Prefix must include the separator — otherwise "../root-evil/x" style
+    // siblings sharing the root's name prefix would slip through.
+    if (file !== root && !file.startsWith(root + sep)) return false;
     if (!existsSync(file) || !statSync(file).isFile()) {
       // SPA fallback
       file = join(root, "index.html");
@@ -146,8 +153,10 @@ export function createStaticHandler(rootDir) {
     const type = MIME[extname(file).toLowerCase()] ?? "application/octet-stream";
     res.writeHead(200, {
       "content-type": type,
+      "content-length": statSync(file).size,
       "cache-control": file.endsWith("index.html") ? "no-cache" : "public, max-age=31536000, immutable",
     });
+    if (req.method === "HEAD") { res.end(); return true; }
     createReadStream(file).pipe(res);
     return true;
   };

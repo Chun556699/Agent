@@ -30,6 +30,13 @@ description: How to run and end-to-end test the AgentDesk app on this Windows bo
 - Thread detail incl. runs: `GET /api/threads/:id` (run.status, depth, parent_run_id, tokens). Pending approvals: `GET /api/approvals`. Activity feed: `GET /api/activity?limit=200`.
 - SSE replay: `GET /api/runs/:id/events` streams persisted events even for finished runs — quick way to verify event history without UI.
 
+## macOS variant (Chun556699/Agent on macOS boxes)
+- Plain `npm --prefix web run build` and `node server/index.js` work — Node 24 via homebrew; no broken shims. Use `AGENTDESK_DATA_DIR=/tmp/agentdesk-test` for a throwaway DB.
+- Browser: **Chrome** is installed (Safari too). `read_dom`/`browser_console` require Chrome foreground — quit any overlapping app (e.g. iOS Simulator) or the tools report "Chrome is not in the foreground". Maximize via `osascript -e 'tell application "Google Chrome" to set bounds of front window to {0,25,1024,768}'`.
+- Check for a stale server first: `lsof -i :8787`; an old server with a different AGENTDESK_DATA_DIR will mask fresh-state tests.
+- Orphaned runIds (run row never inserted) wedge the UI: `GET /api/runs/:id/events` returns 404 → EventSource closes permanently (browsers do NOT retry 4xx) → the client-side error cap never fires → composer stuck on "agent working"; Stop doesn't help. Repro: pick "Custom (OpenAI-compatible)" provider + default model → send.
+- The "completed/failed · N tokens" status line in RunStream is transient by design — Chat.tsx unmounts the stream the instant a terminal status arrives, so it paints ~1 frame; don't chase it in screenshots, verify tokens via `GET /api/threads/:id` runs.
+
 ## Previously-fixed pitfalls (kept as regression tests to re-check)
 - A custom MCP plugin whose `command` doesn't exist used to crash the server and brick every boot — now: `spawn` 'error' is handled, and rows are only enabled after successful activation. Regression check: connect a bogus MCP, expect a clean error + no row.
 - Zombie runs/stranded approvals are reconciled at boot: `running`/`awaiting_approval` → `failed`, pending approvals → `expired`. Mid-session stranded approvals are decidable via `pendingApprovals` on `GET /api/threads/:id`.

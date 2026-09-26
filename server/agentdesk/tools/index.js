@@ -14,7 +14,12 @@ export function registerTool(def) {
 }
 
 export function unregisterTools(prefix) {
-  for (const name of [...registry.keys()]) if (name.startsWith(prefix)) registry.delete(name);
+  // Match the exact tool name, or a "<prefix>:" namespace — a bare prefix
+  // like 'search' must not also unregister the unrelated 'search_x' builtin.
+  const ns = prefix.endsWith(":") ? prefix : prefix + ":";
+  for (const name of [...registry.keys()]) {
+    if (name === prefix || name.startsWith(ns)) registry.delete(name);
+  }
 }
 
 export function getTool(name) {

@@ -28,12 +28,14 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
   const { data: agentsData } = useFetch<{ agents: Agent[] }>("/api/agents");
   const { data: providersData } = useFetch<{ providers: Provider[] }>("/api/providers");
 
-  const [agentId, setAgentId] = useState("orchestrator");
-  const [providerId, setProviderId] = useState("mock");
-  const [model, setModel] = useState("mock");
+  const [agentId, setAgentId] = useState(() => localStorage.getItem("agentdesk.agent") ?? "orchestrator");
+  const [providerId, setProviderId] = useState(() => localStorage.getItem("agentdesk.provider") ?? "mock");
+  const [model, setModel] = useState(() => localStorage.getItem("agentdesk.model") ?? "mock");
   const [input, setInput] = useState("");
+  const [sendError, setSendError] = useState<string | null>(null);
   const [liveRunId, setLiveRunId] = useState<string | null>(null);
   const [liveStatus, setLiveStatus] = useState("running");
+  const [lastRunError, setLastRunError] = useState<string | null>(null);
   const [inspector, setInspector] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const settled = useRef(true);
@@ -51,17 +53,30 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [data?.messages.length, liveRunId]);
 
+  useEffect(() => { localStorage.setItem("agentdesk.agent", agentId); }, [agentId]);
+  useEffect(() => { localStorage.setItem("agentdesk.provider", providerId); }, [providerId]);
+  useEffect(() => { localStorage.setItem("agentdesk.model", model); }, [model]);
+
   const send = async (text?: string) => {
     const message = (text ?? input).trim();
     if (!message || !settled.current) return;
     setInput("");
+    setSendError(null);
     settled.current = false;
-    const { runId } = await api.post<{ runId: string }>(`/api/threads/${threadId}/runs`, {
-      message, agentId, providerId, model,
-    });
-    setLiveStatus("running");
-    setLiveRunId(runId);
-    reload();
+    try {
+      const { runId } = await api.post<{ runId: string }>(`/api/threads/${threadId}/runs`, {
+        message, agentId, providerId, model,
+      });
+      setLastRunError(null);
+      setLiveStatus("running");
+      setLiveRunId(runId);
+      reload();
+    } catch (e) {
+      // Without this, settled stays false and the composer is dead forever.
+      settled.current = true;
+      setInput(message);
+      setSendError(e instanceof Error ? e.message : "Failed to start the run");
+    }
   };
 
   const stop = () => { if (liveRunId) api.post(`/api/runs/${liveRunId}/cancel`); };
@@ -117,15 +132,24 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
             ))}
             {liveRunId && (
               <div className="rise">
-                <RunStream runId={liveRunId} onStatusChange={(s) => {
+                <RunStream runId={liveRunId} onStatusChange={(s, err) => {
                   setLiveStatus(s);
                   if (["completed", "failed", "cancelled"].includes(s) && !settled.current) {
                     settled.current = true;
                     setLiveRunId(null);
+                    // A failed run persists no assistant message — keep a
+                    // visible trace or the transcript shows a bare 'hi'.
+                    setLastRunError(s === "failed" ? (err ?? "Run failed") : null);
                     reload();
                     onThreadChanged();
                   }
                 }} />
+              </div>
+            )}
+            {lastRunError && (
+              <div className="card px-4 py-2.5 text-[12px] text-err flex items-center gap-2 rise">
+                <span className="w-1.5 h-1.5 rounded-full bg-err shrink-0" />
+                Run failed — {lastRunError}
               </div>
             )}
             <div ref={bottomRef} />
@@ -142,6 +166,7 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
               style={{ boxShadow: "var(--shadow-pop)" }}
             >
               <textarea
+                autoFocus
                 className="w-full bg-transparent resize-none text-[14px] leading-relaxed outline-none placeholder:text-ink-3"
                 rows={Math.min(6, Math.max(1, input.split("\n").length))}
                 placeholder={`Message ${agentsData?.agents.find((a) => a.id === agentId)?.name ?? "agent"}…`}
@@ -152,12 +177,14 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
                 }}
               />
               <div className="flex items-center mt-1">
-                <span className="text-[11px] text-ink-3 flex items-center gap-2">
+                <span className={cx("text-[11px] flex items-center gap-2 min-w-0", sendError ? "text-err" : "text-ink-3")}>
                   {running ? (
                     <>
                       <Orb small />
                       <span className="shimmer-text">agent working</span>
                     </>
+                  ) : sendError ? (
+                    <span className="truncate">{sendError}</span>
                   ) : (
                     "Enter to send · Shift+Enter newline"
                   )}

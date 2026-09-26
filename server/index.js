@@ -30,6 +30,14 @@ const server = createServer(async (req, res) => {
   }
 });
 
+server.on("error", (err) => {
+  if (err.code === "EADDRINUSE") {
+    console.error(`[server] port ${PORT} is already in use — is another AgentDesk running?`);
+    process.exit(1);
+  }
+  throw err;
+});
+
 server.listen(PORT, HOST, () => {
   console.log(`AgentDesk listening on http://${HOST}:${PORT}`);
   console.log(`API docs: http://${HOST}:${PORT}/api/health`);

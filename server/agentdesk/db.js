@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS messages (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_messages_run ON messages(run_id);
 
 CREATE TABLE IF NOT EXISTS events (
   seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,6 +74,7 @@ CREATE TABLE IF NOT EXISTS events (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_events_run ON events(run_id, seq);
+CREATE INDEX IF NOT EXISTS idx_runs_thread ON runs(thread_id);
 
 CREATE TABLE IF NOT EXISTS approvals (
   id TEXT PRIMARY KEY,
@@ -85,6 +87,7 @@ CREATE TABLE IF NOT EXISTS approvals (
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   decided_at TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_approvals_run ON approvals(run_id);
 
 CREATE TABLE IF NOT EXISTS plugins (
   id TEXT PRIMARY KEY,
@@ -108,8 +111,17 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 `);
 
+// Prepared-statement cache: emit() runs once per streamed token, so
+// re-preparing the same INSERT each delta is measurable overhead.
+const stmtCache = new Map();
+const prep = (sql) => {
+  let s = stmtCache.get(sql);
+  if (!s) { s = db.prepare(sql); stmtCache.set(sql, s); }
+  return s;
+};
+
 export const q = {
-  get: (sql, ...args) => db.prepare(sql).get(...args),
-  all: (sql, ...args) => db.prepare(sql).all(...args),
-  run: (sql, ...args) => db.prepare(sql).run(...args),
+  get: (sql, ...args) => prep(sql).get(...args),
+  all: (sql, ...args) => prep(sql).all(...args),
+  run: (sql, ...args) => prep(sql).run(...args),
 };

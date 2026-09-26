@@ -52,8 +52,8 @@ function ProviderCard({ p, onChanged }: { p: Provider; onChanged: () => void }) 
     setBusy(true);
     setTestMsg(null);
     try {
-      const r = await api.post<{ ok: boolean; error?: string; model?: string }>(`/api/providers/${p.id}/test`);
-      setTestMsg({ ok: r.ok, text: r.ok ? `Connected${r.model ? ` · ${r.model}` : ""}` : (r.error ?? "failed") });
+      const r = await api.post<{ ok: boolean; error?: string; reply?: string }>(`/api/providers/${p.id}/test`);
+      setTestMsg({ ok: r.ok, text: r.ok ? `Connected — replied "${r.reply ?? "ok"}"` : (r.error ?? "failed") });
     } catch (e) {
       setTestMsg({ ok: false, text: (e as Error).message });
     } finally {

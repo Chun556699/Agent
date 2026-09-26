@@ -1,5 +1,6 @@
 import { q } from "../db.js";
 import { newId } from "../crypto.js";
+import { HttpError } from "../http.js";
 
 /**
  * Specialist agents. `tools` limits the exposed tool surface; `model` holds a
@@ -88,6 +89,8 @@ export function createAgent({ name, description = "", systemPrompt, tools = [], 
 export function deleteAgent(id) {
   const agent = getAgent(id);
   if (!agent) return;
-  if (agent.builtin) throw Object.assign(new Error("Cannot delete a built-in agent"), { status: 400 });
+  // Must be HttpError — the router only honors .status on that type;
+  // a plain Error with a status field would surface as a 500.
+  if (agent.builtin) throw new HttpError(400, "Cannot delete a built-in agent");
   q.run("DELETE FROM agents WHERE id = ?", id);
 }

@@ -30,6 +30,15 @@ export default function App() {
 
   useEffect(() => { reload(); }, [reload]);
 
+  // Runs finishing elsewhere (sub-agents, another tab, a restart) change
+  // thread state — poll lightly so the sidebar reflects reality.
+  useEffect(() => {
+    const t = window.setInterval(() => {
+      if (!document.hidden) reload();
+    }, 8000);
+    return () => window.clearInterval(t);
+  }, [reload]);
+
   const createThread = useCallback(async () => {
     const { thread } = await api.post<{ thread: Thread }>("/api/threads");
     await reload();
@@ -47,6 +56,11 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [createThread]);
+
+  const renameThread = async (id: string, title: string) => {
+    await api.patch(`/api/threads/${id}`, { title });
+    reload();
+  };
 
   const deleteThread = async (id: string) => {
     await api.del(`/api/threads/${id}`);
@@ -66,6 +80,7 @@ export default function App() {
         current={current}
         onSelect={(id) => { setCurrent(id); setPage("chat"); }}
         onNew={createThread}
+        onRename={renameThread}
         onDelete={deleteThread}
       />
       <main className="flex-1 flex min-w-0">

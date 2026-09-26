@@ -15,6 +15,12 @@ const execFileAsync = promisify(execFile);
 
 function resolveInWorkspace(p) {
   if (typeof p !== "string" || !p.length) throw new HttpError(400, "path is required");
+  // Windows-absolute paths (C:\..., \\unc\...) can't exist inside the
+  // workspace on POSIX hosts — without this they resolve as relative names
+  // and silently create a literal "C:" directory instead of being rejected.
+  if (process.platform !== "win32" && /^(?:[a-zA-Z]:[\/]|[\/]{2})/.test(p)) {
+    throw new HttpError(403, `Path '${p}' escapes the workspace sandbox`);
+  }
   const abs = normalize(resolve(WORKSPACE_DIR, p));
   if (abs !== WORKSPACE_DIR && !abs.startsWith(WORKSPACE_DIR + sep)) {
     throw new HttpError(403, `Path '${p}' escapes the workspace sandbox`);

@@ -26,6 +26,7 @@ export type Thread = {
   title: string;
   agentId: string;
   runCount: number;
+  activeRuns: number;
   hasSummary: boolean;
   createdAt: string;
   updatedAt: string;

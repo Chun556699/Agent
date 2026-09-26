@@ -1,7 +1,9 @@
 import { contextStats } from "./agents/context.js";
 import { createAgent, deleteAgent, listAgents } from "./agents/roles.js";
 import {
+  assertStartable,
   cancelRun,
+  cancelRunsForThread,
   decideApproval,
   getAutoApprovals,
   startRun,
@@ -92,10 +94,14 @@ export function createApi() {
   /* -------- threads & messages -------- */
   router.get("/api/threads", () => ({
     threads: q.all(
-      `SELECT t.*, (SELECT COUNT(*) FROM runs r WHERE r.thread_id = t.id) AS run_count
-       FROM threads t ORDER BY t.updated_at DESC LIMIT 500`
+      `SELECT t.*,
+         (SELECT COUNT(*) FROM runs r WHERE r.thread_id = t.id) AS run_count,
+         (SELECT COUNT(*) FROM runs r WHERE r.thread_id = t.id
+           AND r.status IN ('running','awaiting_approval')) AS active_runs
+       FROM threads t ORDER BY t.updated_at DESC, t.rowid DESC LIMIT 500`
     ).map((t) => ({
       id: t.id, title: t.title, agentId: t.agent_id, runCount: t.run_count,
+      activeRuns: t.active_runs,
       hasSummary: !!t.summary, createdAt: t.created_at, updatedAt: t.updated_at,
     })),
   }));
@@ -123,7 +129,7 @@ export function createApi() {
     const runs = q.all(
       `SELECT id, parent_run_id, depth, agent_id, status, provider_id, model,
               input_tokens, output_tokens, created_at, ended_at
-       FROM runs WHERE thread_id = ? ORDER BY created_at`,
+       FROM runs WHERE thread_id = ? ORDER BY rowid`,
       params.id
     );
     const pendingApprovals = q.all(
@@ -138,11 +144,31 @@ export function createApi() {
     return { thread, messages, runs, pendingApprovals };
   });
 
-  router.delete("/api/threads/:id", ({ params }) => {
+  router.patch("/api/threads/:id", ({ params, body }) => {
+    const thread = q.get("SELECT id FROM threads WHERE id = ?", params.id);
+    if (!thread) throw new HttpError(404, "Thread not found");
+    const title = typeof body?.title === "string" ? body.title.trim().slice(0, 120) : "";
+    if (!title) throw new HttpError(400, "title is required");
+    q.run("UPDATE threads SET title = ? WHERE id = ?", title, params.id);
+    return { ok: true, title };
+  });
+
+  router.delete("/api/threads/:id", async ({ params }) => {
+    // Cancel live runs first and wait for their final writes — otherwise
+    // messages/events land just after the cascade and end up orphaned.
+    const cancelled = await cancelRunsForThread(params.id);
+    q.run(
+      "DELETE FROM approvals WHERE run_id IN (SELECT id FROM runs WHERE thread_id = ?)",
+      params.id
+    );
+    q.run(
+      "DELETE FROM events WHERE run_id IN (SELECT id FROM runs WHERE thread_id = ?)",
+      params.id
+    );
     q.run("DELETE FROM messages WHERE thread_id = ?", params.id);
     q.run("DELETE FROM runs WHERE thread_id = ?", params.id);
     q.run("DELETE FROM threads WHERE id = ?", params.id);
-    return { ok: true };
+    return { ok: true, cancelledRuns: cancelled.length };
   });
 
   /* -------- runs -------- */
@@ -157,23 +183,51 @@ export function createApi() {
     const title = isFirst ? prompt.replace(/\s+/g, " ").slice(0, AUTO_TITLE_LEN) : null;
     touchThread(params.id, { title });
 
+    // Validate before minting a runId: agent/provider errors must fail this
+    // request, not produce a run whose event stream 404s.
+    assertStartable({
+      agentId: body?.agentId ?? thread.agent_id ?? "orchestrator",
+      providerId: body?.providerId,
+      model: body?.model,
+      depth: 0,
+    });
+
     const runId = newId("run");
+    const agentId = body?.agentId ?? thread.agent_id ?? "orchestrator";
     // Run in the background; events stream over /api/runs/:id/events.
     startRun({
       runId,
       threadId: params.id,
-      agentId: body?.agentId ?? thread.agent_id ?? "orchestrator",
+      agentId,
       providerId: body?.providerId,
       model: body?.model,
       task: prompt,
       depth: 0,
     }).catch((err) => {
       console.error(`[run ${runId}]`, err);
-      q.run(
-        "UPDATE runs SET status = 'failed', error = ?, ended_at = datetime('now') WHERE id = ?",
-        err.message, runId
-      );
-      emit(runId, "run_completed", { runId, status: "failed", error: err.message });
+      const row = q.get("SELECT id, status FROM runs WHERE id = ?", runId);
+      if (!row) {
+        // startRun threw before provisioning — assertStartable guards the
+        // expected causes, so this is belt-and-braces: still persist a failed
+        // row + the user's message + a terminal event or the stream 404s.
+        q.run(
+          `INSERT INTO runs (id, thread_id, agent_id, depth, status, provider_id, model, error, ended_at)
+           VALUES (?, ?, ?, 0, 'failed', ?, ?, ?, datetime('now'))`,
+          runId, params.id, agentId, body?.providerId ?? "mock", body?.model ?? null, err.message
+        );
+        q.run(
+          "INSERT INTO messages (id, thread_id, role, content) VALUES (?, ?, 'user', ?)",
+          newId("msg"), params.id, prompt
+        );
+        emit(runId, "run_completed", { runId, status: "failed", error: err.message });
+      } else if (["running", "awaiting_approval"].includes(row.status)) {
+        q.run(
+          "UPDATE runs SET status = 'failed', error = ?, ended_at = datetime('now') WHERE id = ?",
+          err.message, runId
+        );
+        emit(runId, "run_completed", { runId, status: "failed", error: err.message });
+      }
+      // else: the run's own finally already finalized it — nothing to do.
     });
     return { runId };
   });
@@ -195,23 +249,38 @@ export function createApi() {
     const run = q.get("SELECT id, status FROM runs WHERE id = ?", params.id);
     if (!run) throw new HttpError(404, "Run not found");
     const stream = sse(res);
-    for (const ev of replayEvents(params.id)) stream.send(ev.type, ev);
-    if (!["running", "awaiting_approval"].includes(run.status)) {
-      stream.close();
-      return;
-    }
-    const unsub = subscribe(params.id, (ev) => stream.send(ev.type, ev));
+    // Subscribe before replaying, buffering live events until the replay
+    // flush completes — otherwise events emitted between the replay SELECT
+    // and subscribe() are lost, and a run finishing in that gap would leave
+    // the client waiting on a stream that never sees run_completed.
+    let replaying = true;
+    const buffered = [];
+    const unsub = subscribe(params.id, (ev) => {
+      if (replaying) buffered.push(ev); else stream.send(ev.type, ev);
+    });
     const heartbeat = setInterval(() => stream.send("ping", {}), 15_000);
     req.on("close", () => { clearInterval(heartbeat); unsub(); });
+    for (const ev of replayEvents(params.id)) stream.send(ev.type, ev);
+    replaying = false;
+    for (const ev of buffered) stream.send(ev.type, ev);
+    const cur = q.get("SELECT status FROM runs WHERE id = ?", params.id);
+    if (!["running", "awaiting_approval"].includes(cur.status)) {
+      clearInterval(heartbeat);
+      stream.close();
+    }
   });
 
   router.post("/api/runs/:id/cancel", ({ params }) => {
-    cancelRun(params.id);
-    q.run(
+    const wasLive = cancelRun(params.id);
+    const info = q.run(
       "UPDATE runs SET status = 'cancelled', ended_at = datetime('now') WHERE id = ? AND status IN ('running','awaiting_approval')",
       params.id
     );
-    emit(params.id, "run_completed", { runId: params.id, status: "cancelled" });
+    // Live runs emit their own run_completed from startRun's finally — only
+    // synthesize one for a row the runtime isn't driving (avoid duplicates).
+    if (info.changes > 0 && !wasLive) {
+      emit(params.id, "run_completed", { runId: params.id, status: "cancelled" });
+    }
     return { ok: true };
   });
 
@@ -318,10 +387,20 @@ export async function boot() {
   // Reconcile state left mid-flight by a previous exit/crash: those runs can
   // never resume (their resolvers were in-memory), so fail them instead of
   // leaving zombie 'running'/'awaiting_approval' rows forever.
+  const zombies = q.all(
+    "SELECT id FROM runs WHERE status IN ('running', 'awaiting_approval')"
+  );
   q.run(
     `UPDATE runs SET status = 'failed', ended_at = datetime('now')
      WHERE status IN ('running', 'awaiting_approval')`
   );
   q.run("UPDATE approvals SET status = 'expired' WHERE status = 'pending'");
+  // SSE replays terminate on run_completed — reconciled runs need one
+  // persisted or reconnecting clients retry the stream forever.
+  for (const r of zombies) {
+    emit(r.id, "run_completed", {
+      runId: r.id, status: "failed", error: "Run interrupted by server restart",
+    });
+  }
   await activateInstalledPlugins();
 }

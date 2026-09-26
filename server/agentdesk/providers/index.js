@@ -76,9 +76,13 @@ export function getProviderState(id) {
 
 export function configureProvider(id, { apiKey, baseUrl, enabled }) {
   const { vendor } = getProviderState(id);
-  const existing = q.get("SELECT api_key_enc FROM providers WHERE id = ?", id);
+  const existing = q.get("SELECT * FROM providers WHERE id = ?", id);
   const enc =
     apiKey != null ? (apiKey === "" ? null : encryptSecret(apiKey)) : existing?.api_key_enc ?? null;
+  // Fields not present in this request keep their stored values — e.g.
+  // toggling `enabled` must not reset a custom baseUrl back to the default.
+  const nextBase = baseUrl != null ? baseUrl : (existing?.base_url ?? vendor.baseUrl ?? "");
+  const nextEnabled = enabled == null ? (existing?.enabled ?? 1) : enabled ? 1 : 0;
   q.run(
     `INSERT INTO providers (id, base_url, enabled, api_key_enc, updated_at)
      VALUES (?, ?, ?, ?, datetime('now'))
@@ -88,8 +92,8 @@ export function configureProvider(id, { apiKey, baseUrl, enabled }) {
        api_key_enc = excluded.api_key_enc,
        updated_at = excluded.updated_at`,
     id,
-    baseUrl != null ? baseUrl : vendor.baseUrl ?? "",
-    enabled == null ? 1 : enabled ? 1 : 0,
+    nextBase,
+    nextEnabled,
     enc
   );
 }

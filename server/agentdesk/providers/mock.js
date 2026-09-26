@@ -70,7 +70,10 @@ export async function* streamChat({ model, messages, meta }) {
   } else if (/search|knowledge/.test(text)) {
     push("knowledge_search", { query: lastUser?.content ?? "", limit: 5 });
   } else if (/calc|math|[0-9][+*\-\/][0-9]/.test(text)) {
-    push("calculator", { expression: "21 * 2" });
+    // Prefer the real expression in the prompt so 'calc 6*7' computes 42 —
+    // fall back to the demo expression when the message has none.
+    const expr = (lastUser?.content ?? "").match(/\d[\d\s+\-*/().%]*/)?.[0]?.trim();
+    push("calculator", { expression: expr || "21 * 2" });
   } else if (/who are you|help|tools/.test(text)) {
     yield* streamText(
       "I am the AgentDesk mock model (offline). Try: 'calc 21*2', 'fetch example.com', 'remember this', 'spawn a subagent team', 'write file', or 'run a shell command' to exercise tools, approvals and sub-agents without an API key."
