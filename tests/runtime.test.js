@@ -88,6 +88,24 @@ test("unknown agent is rejected", async () => {
   );
 });
 
+test("provider-resolution failure leaves a failed run, not an orphaned runId", async () => {
+  // Regression: startRun used to resolve the provider before inserting the
+  // runs row — a throw there meant /api/runs/:id/events 404'd forever and the
+  // user's message vanished.
+  const threadId = makeThread();
+  const runId = newId("run");
+  // 'openai' has no API key configured in the test data dir → resolveModel throws.
+  const res = await startRun({ threadId, runId, providerId: "openai", model: "gpt-x", task: "hi" });
+  assert.equal(res.status, "failed");
+  assert.equal(q.get("SELECT status FROM runs WHERE id = ?", runId).status, "failed");
+  assert.deepEqual(
+    q.all("SELECT role FROM messages WHERE thread_id = ?", threadId).map((m) => m.role),
+    ["user"]
+  );
+  const types = q.all("SELECT type FROM events WHERE run_id = ?", runId).map((e) => e.type);
+  assert.ok(types.includes("run_started") && types.includes("run_completed"));
+});
+
 test("assertStartable rejects bad runs before a runId exists", () => {
   const threadId = makeThread();
   assert.throws(() => assertStartable({ agentId: "nope", depth: 0 }), /Unknown agent/);

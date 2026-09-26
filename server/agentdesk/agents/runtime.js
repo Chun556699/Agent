@@ -144,9 +144,15 @@ function toolsFor(agent) {
  * synchronously so the API can reject the request instead of returning a
  * runId for a run that instantly fails off-stream. */
 export function assertStartable({ agentId = "orchestrator", providerId, model, depth = 0 }) {
-  if (!getAgent(agentId)) throw new HttpError(404, `Unknown agent '${agentId}'`);
+  const agent = getAgent(agentId);
+  if (!agent) throw new HttpError(404, `Unknown agent '${agentId}'`);
   if (depth > MAX_DEPTH) throw new HttpError(400, "Maximum sub-agent depth reached");
-  resolveModel({ providerId: providerId ?? "mock", model });
+  // Must resolve exactly like startRun — agent-level model fallbacks
+  // included — or a request accepted here can still die inside startRun.
+  resolveModel({
+    providerId: providerId ?? agent.model?.providerId ?? "mock",
+    model: model ?? agent.model?.model,
+  });
 }
 
 /** Run a full agent loop for one run. Returns { runId, text, usage, status }. */
@@ -158,21 +164,22 @@ export async function startRun({
   if (!agent) throw new HttpError(404, `Unknown agent '${agentId}'`);
   if (depth > MAX_DEPTH) throw new HttpError(400, "Maximum sub-agent depth reached");
 
-  const resolved = resolveModel({
-    providerId: providerId ?? agent.model?.providerId ?? "mock",
-    model: model ?? agent.model?.model,
-  });
-
   const runId = presetRunId ?? newId("run");
   const controller = new AbortController();
   const entry = { controller };
   entry.settled = new Promise((res) => (entry.resolve = res));
   running.set(runId, entry);
 
+  const effProviderId = providerId ?? agent.model?.providerId ?? "mock";
+  const effModel = model ?? agent.model?.model ?? null;
+
+  // Provision before anything that can fail: once a runId exists the runs
+  // row, the user's message and run_started must land, or the event stream
+  // 404s and the client never settles (and the message is silently lost).
   q.run(
     `INSERT INTO runs (id, thread_id, agent_id, parent_run_id, depth, status, provider_id, model)
      VALUES (?, ?, ?, ?, ?, 'running', ?, ?)`,
-    runId, threadId, agentId, parentRunId, depth, resolved.providerId, resolved.model
+    runId, threadId, agentId, parentRunId, depth, effProviderId, effModel
   );
 
   if (task != null) {
@@ -182,7 +189,7 @@ export async function startRun({
 
   emit(runId, "run_started", {
     runId, threadId, agentId, agentName: agent.name, parentRunId, depth,
-    providerId: resolved.providerId, model: resolved.model, task,
+    providerId: effProviderId, model: effModel, task,
   });
   if (parentRunId) {
     emit(parentRunId, "subagent_started", {
@@ -196,6 +203,12 @@ export async function startRun({
   let error = null;
 
   try {
+    const resolved = resolveModel({ providerId: effProviderId, model: effModel ?? undefined });
+    // resolveModel applies the vendor's default model when none was asked —
+    // record what actually ran so the run tree/history show it.
+    if (resolved.model && resolved.model !== effModel) {
+      q.run("UPDATE runs SET model = ? WHERE id = ?", resolved.model, runId);
+    }
     for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
       if (controller.signal.aborted) { status = "cancelled"; break; }
 

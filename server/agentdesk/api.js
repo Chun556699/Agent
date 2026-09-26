@@ -193,22 +193,41 @@ export function createApi() {
     });
 
     const runId = newId("run");
+    const agentId = body?.agentId ?? thread.agent_id ?? "orchestrator";
     // Run in the background; events stream over /api/runs/:id/events.
     startRun({
       runId,
       threadId: params.id,
-      agentId: body?.agentId ?? thread.agent_id ?? "orchestrator",
+      agentId,
       providerId: body?.providerId,
       model: body?.model,
       task: prompt,
       depth: 0,
     }).catch((err) => {
       console.error(`[run ${runId}]`, err);
-      q.run(
-        "UPDATE runs SET status = 'failed', error = ?, ended_at = datetime('now') WHERE id = ?",
-        err.message, runId
-      );
-      emit(runId, "run_completed", { runId, status: "failed", error: err.message });
+      const row = q.get("SELECT id, status FROM runs WHERE id = ?", runId);
+      if (!row) {
+        // startRun threw before provisioning — assertStartable guards the
+        // expected causes, so this is belt-and-braces: still persist a failed
+        // row + the user's message + a terminal event or the stream 404s.
+        q.run(
+          `INSERT INTO runs (id, thread_id, agent_id, depth, status, provider_id, model, error, ended_at)
+           VALUES (?, ?, ?, 0, 'failed', ?, ?, ?, datetime('now'))`,
+          runId, params.id, agentId, body?.providerId ?? "mock", body?.model ?? null, err.message
+        );
+        q.run(
+          "INSERT INTO messages (id, thread_id, role, content) VALUES (?, ?, 'user', ?)",
+          newId("msg"), params.id, prompt
+        );
+        emit(runId, "run_completed", { runId, status: "failed", error: err.message });
+      } else if (["running", "awaiting_approval"].includes(row.status)) {
+        q.run(
+          "UPDATE runs SET status = 'failed', error = ?, ended_at = datetime('now') WHERE id = ?",
+          err.message, runId
+        );
+        emit(runId, "run_completed", { runId, status: "failed", error: err.message });
+      }
+      // else: the run's own finally already finalized it — nothing to do.
     });
     return { runId };
   });
