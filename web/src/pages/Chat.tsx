@@ -35,6 +35,7 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
   const [sendError, setSendError] = useState<string | null>(null);
   const [liveRunId, setLiveRunId] = useState<string | null>(null);
   const [liveStatus, setLiveStatus] = useState("running");
+  const [lastRunError, setLastRunError] = useState<string | null>(null);
   const [inspector, setInspector] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const settled = useRef(true);
@@ -66,6 +67,7 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
       const { runId } = await api.post<{ runId: string }>(`/api/threads/${threadId}/runs`, {
         message, agentId, providerId, model,
       });
+      setLastRunError(null);
       setLiveStatus("running");
       setLiveRunId(runId);
       reload();
@@ -130,15 +132,24 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
             ))}
             {liveRunId && (
               <div className="rise">
-                <RunStream runId={liveRunId} onStatusChange={(s) => {
+                <RunStream runId={liveRunId} onStatusChange={(s, err) => {
                   setLiveStatus(s);
                   if (["completed", "failed", "cancelled"].includes(s) && !settled.current) {
                     settled.current = true;
                     setLiveRunId(null);
+                    // A failed run persists no assistant message — keep a
+                    // visible trace or the transcript shows a bare 'hi'.
+                    setLastRunError(s === "failed" ? (err ?? "Run failed") : null);
                     reload();
                     onThreadChanged();
                   }
                 }} />
+              </div>
+            )}
+            {lastRunError && (
+              <div className="card px-4 py-2.5 text-[12px] text-err flex items-center gap-2 rise">
+                <span className="w-1.5 h-1.5 rounded-full bg-err shrink-0" />
+                Run failed — {lastRunError}
               </div>
             )}
             <div ref={bottomRef} />

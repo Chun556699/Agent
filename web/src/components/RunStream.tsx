@@ -74,7 +74,7 @@ function reducer(state: State, ev: RunEvent): State {
   }
 }
 
-export function RunStream({ runId, compact, onStatusChange }: { runId: string; compact?: boolean; onStatusChange?: (status: string) => void }) {
+export function RunStream({ runId, compact, onStatusChange }: { runId: string; compact?: boolean; onStatusChange?: (status: string, error?: string) => void }) {
   const [state, dispatch] = useReducer(reducer, { blocks: [], status: "running", usage: { inputTokens: 0, outputTokens: 0 } });
   const boxRef = useRef<HTMLDivElement>(null);
   const lastStatus = useRef("");
@@ -137,9 +137,9 @@ export function RunStream({ runId, compact, onStatusChange }: { runId: string; c
   useEffect(() => {
     if (state.status !== lastStatus.current) {
       lastStatus.current = state.status;
-      onStatusChange?.(state.status);
+      onStatusChange?.(state.status, state.error);
     }
-  }, [state.status, onStatusChange]);
+  }, [state.status, state.error, onStatusChange]);
 
   // scrollIntoView reaches the enclosing chat scroller (this box rarely
   // overflows itself) so streamed content — including growth of the last
