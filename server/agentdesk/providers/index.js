@@ -63,6 +63,7 @@ export function listProviders() {
       hasKey: !!row?.api_key_enc,
       keyRequired: v.keyRequired !== false,
       configured: !!row?.api_key_enc || v.keyRequired === false,
+      options: JSON.parse(row?.config_json || "{}"),
     };
   });
 }
@@ -74,23 +75,42 @@ export function getProviderState(id) {
   return { vendor, row };
 }
 
-export function configureProvider(id, { apiKey, baseUrl, enabled }) {
+export function configureProvider(id, { apiKey, baseUrl, enabled, extraBody, stream, sendTools }) {
   const { vendor } = getProviderState(id);
-  const existing = q.get("SELECT api_key_enc FROM providers WHERE id = ?", id);
+  const existing = q.get("SELECT api_key_enc, config_json FROM providers WHERE id = ?", id);
   const enc =
     apiKey != null ? (apiKey === "" ? null : encryptSecret(apiKey)) : existing?.api_key_enc ?? null;
+  const options = JSON.parse(existing?.config_json || "{}");
+  if (extraBody !== undefined) {
+    if (extraBody === null) delete options.extraBody;
+    else if (typeof extraBody !== "object" || Array.isArray(extraBody)) {
+      throw new HttpError(400, "extraBody must be a JSON object");
+    } else options.extraBody = extraBody;
+  }
+  if (stream !== undefined) {
+    if (stream === null) delete options.stream;
+    else if (typeof stream !== "boolean") throw new HttpError(400, "stream must be a boolean");
+    else options.stream = stream;
+  }
+  if (sendTools !== undefined) {
+    if (sendTools === null) delete options.sendTools;
+    else if (typeof sendTools !== "boolean") throw new HttpError(400, "sendTools must be a boolean");
+    else options.sendTools = sendTools;
+  }
   q.run(
-    `INSERT INTO providers (id, base_url, enabled, api_key_enc, updated_at)
-     VALUES (?, ?, ?, ?, datetime('now'))
+    `INSERT INTO providers (id, base_url, enabled, api_key_enc, config_json, updated_at)
+     VALUES (?, ?, ?, ?, ?, datetime('now'))
      ON CONFLICT(id) DO UPDATE SET
        base_url = excluded.base_url,
        enabled = excluded.enabled,
        api_key_enc = excluded.api_key_enc,
+       config_json = excluded.config_json,
        updated_at = excluded.updated_at`,
     id,
     baseUrl != null ? baseUrl : vendor.baseUrl ?? "",
     enabled == null ? 1 : enabled ? 1 : 0,
-    enc
+    enc,
+    JSON.stringify(options)
   );
 }
 
@@ -104,6 +124,7 @@ export function resolveModel({ providerId, model }) {
   }
   const driver = DRIVERS[vendor.format];
   const chosen = model || vendor.models[0];
+  const options = JSON.parse(row?.config_json || "{}");
   return {
     providerId,
     model: chosen,
@@ -117,6 +138,9 @@ export function resolveModel({ providerId, model }) {
         tools,
         signal,
         meta,
+        extraBody: options.extraBody,
+        stream: options.stream,
+        sendTools: options.sendTools,
       }),
   };
 }

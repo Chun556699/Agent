@@ -26,15 +26,33 @@ function toApiMessages(messages) {
   return out;
 }
 
-export async function* streamChat({ apiKey, baseUrl, model, messages, tools, signal }) {
+/** Strip tool-shaped history for endpoints that reject tools entirely. */
+function messagesWithoutTools(messages) {
+  const out = [];
+  for (const m of messages) {
+    if (m.role === "tool") continue;
+    if (m.role === "assistant" && m.tool_calls?.length && !m.content) continue;
+    if (m.role === "assistant" && m.tool_calls?.length) {
+      out.push({ role: "assistant", content: m.content });
+      continue;
+    }
+    out.push(m);
+  }
+  return out;
+}
+
+export async function* streamChat({ apiKey, baseUrl, model, messages, tools, signal, extraBody, stream, sendTools }) {
   const url = `${baseUrl.replace(/\/$/, "")}/chat/completions`;
+  const wantStream = stream !== false;
+  const wantTools = sendTools !== false && tools?.length;
   const body = {
+    ...(extraBody ?? {}),
     model,
-    messages: toApiMessages(messages),
-    stream: true,
-    stream_options: { include_usage: true },
+    messages: toApiMessages(wantTools ? messages : messagesWithoutTools(messages)),
+    stream: wantStream,
   };
-  if (tools?.length) {
+  if (wantStream) body.stream_options = { include_usage: true };
+  if (wantTools) {
     body.tools = tools.map((t) => ({
       type: "function",
       function: {
@@ -43,9 +61,11 @@ export async function* streamChat({ apiKey, baseUrl, model, messages, tools, sig
         parameters: t.parameters ?? { type: "object", properties: {} },
       },
     }));
-    body.tool_choice = "auto";
+    // tool_choice omitted: "auto" is the spec default, and some dedicated
+    // deployments (e.g. Bailian maas endpoints) reject the field outright.
   }
 
+  if (process.env.AGENTDESK_DEBUG_BODY) console.error("[openai body]", JSON.stringify(body));
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -56,6 +76,27 @@ export async function* streamChat({ apiKey, baseUrl, model, messages, tools, sig
     signal,
   });
   await checkResponse(response, "OpenAI-compatible");
+
+  if (!wantStream) {
+    const json = await response.json();
+    const message = json.choices?.[0]?.message ?? {};
+    if (message.content) yield { type: "text_delta", delta: message.content };
+    const toolCalls = (message.tool_calls ?? []).map((tc) => {
+      let parsed = {};
+      try { parsed = JSON.parse(tc.function?.arguments || "{}"); } catch { /* keep raw */ }
+      return { id: tc.id || `call_${Date.now()}`, name: tc.function?.name, arguments: parsed };
+    });
+    if (toolCalls.length) yield { type: "tool_calls", toolCalls };
+    yield {
+      type: "usage",
+      usage: {
+        inputTokens: json.usage?.prompt_tokens ?? 0,
+        outputTokens: json.usage?.completion_tokens ?? 0,
+      },
+    };
+    yield { type: "done" };
+    return;
+  }
 
   // pending tool call accumulators keyed by index
   const pending = new Map();

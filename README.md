@@ -11,7 +11,11 @@ threads — all in one dependency-light desktop app.
   whole app works with zero keys: OpenAI, Anthropic, Google, DeepSeek, Moonshot
   (Kimi), Qwen, Zhipu (GLM), MiniMax, Doubao, Mistral, Groq, xAI, OpenRouter,
   Ollama, LM Studio, and a custom OpenAI-compatible endpoint. Per-provider base
-  URL, model list, and a live connectivity test.
+  URL, model list, and a live connectivity test. `PUT /api/providers/:id` also
+  accepts provider options for dedicated gateways: `extraBody` (JSON merged into
+  every request, e.g. Bailian's `translation_options`), `stream` (set `false`
+  for endpoints without SSE), and `sendTools` (set `false` to strip tool
+  schemas and tool history for models that reject them).
 - **Sub-agents** — `spawn_agent` delegates a self-contained task to a specialist
   agent (researcher, coder, writer, analyst, or your own custom agent) running
   its own isolated context; the UI renders the child run tree inline, depth ≤ 3.
