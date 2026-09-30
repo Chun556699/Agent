@@ -21,11 +21,14 @@ export type Agent = {
   builtin?: boolean;
 };
 
+export type ThreadStatus = "inbox" | "in_progress" | "review" | "done";
+
 export type Thread = {
   id: string;
   title: string;
   agentId: string;
   runCount: number;
+  status: ThreadStatus;
   hasSummary: boolean;
   createdAt: string;
   updatedAt: string;

@@ -59,7 +59,7 @@ export function Inspector({ runId }: { runId: string }) {
     <aside className="w-72 shrink-0 border-l border-line bg-paper overflow-y-auto rise">
       <div className="p-4 space-y-5">
         <section>
-          <h3 className="text-[11px] font-medium uppercase tracking-wider text-ink-3 mb-2">Context</h3>
+          <h3 className="text-[11px] font-medium uppercase tracking-wider text-ink-3 mb-2">上下文</h3>
           {stats ? (
             <div className="card p-3 space-y-2">
               <div className="flex justify-between text-[12px]">
@@ -88,7 +88,7 @@ export function Inspector({ runId }: { runId: string }) {
         </section>
 
         <section>
-          <h3 className="text-[11px] font-medium uppercase tracking-wider text-ink-3 mb-2">Run tree</h3>
+          <h3 className="text-[11px] font-medium uppercase tracking-wider text-ink-3 mb-2">运行树</h3>
           {tree && (
             <div className="card p-3 space-y-1.5 text-[12px]">
               <RunRow id={tree.run.id} label={`${tree.run.agent_id}${tree.run.model ? ` · ${tree.run.model}` : ""}`} status={tree.run.status} depth={0} />
@@ -102,7 +102,7 @@ export function Inspector({ runId }: { runId: string }) {
         <section>
           <h3 className="text-[11px] font-medium uppercase tracking-wider text-ink-3 mb-2">
             Tools
-            <span className="normal-case font-normal text-ink-3 ml-1.5">auto-approve</span>
+            <span className="normal-case font-normal text-ink-3 ml-1.5">自动批准</span>
           </h3>
           <div className="card divide-y divide-line text-[12px]">
             {tools.map((t) => (

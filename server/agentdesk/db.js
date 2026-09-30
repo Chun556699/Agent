@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS threads (
   title TEXT NOT NULL DEFAULT 'New thread',
   agent_id TEXT NOT NULL DEFAULT 'orchestrator',
   summary TEXT,
+  status TEXT NOT NULL DEFAULT 'inbox',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -107,6 +108,12 @@ CREATE TABLE IF NOT EXISTS settings (
   value_json TEXT NOT NULL DEFAULT '{}'
 );
 `);
+
+// Column migrations for DBs created before the columns existed.
+const threadCols = db.prepare("PRAGMA table_info(threads)").all().map((c) => c.name);
+if (!threadCols.includes("status")) {
+  db.exec("ALTER TABLE threads ADD COLUMN status TEXT NOT NULL DEFAULT 'inbox'");
+}
 
 export const q = {
   get: (sql, ...args) => db.prepare(sql).get(...args),

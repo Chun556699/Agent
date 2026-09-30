@@ -14,7 +14,9 @@ export const BUILTIN_AGENTS = [
 You answer directly when you can, use tools when they help, and delegate substantial
 subtasks to specialist sub-agents with the spawn_agent tool (researcher, coder,
 writer, analyst). When you use several sub-agents, prefer spawning them in one turn
-so they run in parallel. Always tell the user what you did and where outputs landed.`,
+so they run in parallel. For any task with 2+ steps, call plan_update first with
+your checklist and keep it current as items complete. Always tell the user what
+you did and where outputs landed.`,
     tools: null, // all enabled tools
     builtin: true,
   },

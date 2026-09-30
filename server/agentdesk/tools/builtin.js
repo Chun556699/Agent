@@ -5,6 +5,7 @@ import { dirname, join, normalize, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { WORKSPACE_DIR } from "../config.js";
 import { q } from "../db.js";
+import { emit } from "../events.js";
 import { HttpError } from "../http.js";
 import { newId } from "../crypto.js";
 import { registerTool } from "./index.js";
@@ -13,7 +14,7 @@ const execFileAsync = promisify(execFile);
 
 /* ---------------- sandbox helpers ---------------- */
 
-function resolveInWorkspace(p) {
+export function resolveInWorkspace(p) {
   if (typeof p !== "string" || !p.length) throw new HttpError(400, "path is required");
   const abs = normalize(resolve(WORKSPACE_DIR, p));
   if (abs !== WORKSPACE_DIR && !abs.startsWith(WORKSPACE_DIR + sep)) {
@@ -209,6 +210,43 @@ export function registerBuiltinTools() {
           stderr: (err.stderr ?? err.message ?? "").slice(0, 64 * 1024),
         };
       }
+    },
+  });
+
+  registerTool({
+    name: "plan_update",
+    description:
+      "Maintain a visible step plan for the current task. Call once with the full checklist before multi-step work, then again whenever an item changes state. Items: [{id, text, status}] where status is todo|doing|done.",
+    danger: "safe",
+    parameters: {
+      type: "object",
+      properties: {
+        items: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "string" },
+              text: { type: "string" },
+              status: { type: "string", enum: ["todo", "doing", "done"] },
+            },
+            required: ["text", "status"],
+          },
+        },
+      },
+      required: ["items"],
+    },
+    handler: async ({ items }, ctx) => {
+      if (!Array.isArray(items) || !items.length || items.length > 20) {
+        throw new HttpError(400, "items must be a non-empty array (max 20)");
+      }
+      const plan = items.map((it, i) => ({
+        id: String(it.id ?? i + 1),
+        text: String(it.text ?? "").slice(0, 200),
+        status: ["todo", "doing", "done"].includes(it.status) ? it.status : "todo",
+      }));
+      emit(ctx.runId, "plan", { items: plan });
+      return { saved: true, count: plan.length };
     },
   });
 

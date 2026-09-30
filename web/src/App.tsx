@@ -5,6 +5,7 @@ import { Sidebar } from "./components/Sidebar";
 import { SearchPalette } from "./components/SearchPalette";
 import { Titlebar } from "./components/Titlebar";
 import { ChatPage } from "./pages/Chat";
+import { WorkbenchPage } from "./pages/Workbench";
 import { AgentsPage } from "./pages/Agents";
 import { PluginsPage } from "./pages/Plugins";
 import { ProvidersPage } from "./pages/Providers";
@@ -12,10 +13,10 @@ import { MemoryPage } from "./pages/Memory";
 import { ActivityPage } from "./pages/Activity";
 import type { Thread } from "./types";
 
-type Page = "chat" | "agents" | "plugins" | "providers" | "memory" | "activity";
+type Page = "workbench" | "chat" | "agents" | "plugins" | "providers" | "memory" | "activity";
 
 export default function App() {
-  const [page, setPage] = useState<Page>("chat");
+  const [page, setPage] = useState<Page>("workbench");
   const [threads, setThreads] = useState<Thread[]>([]);
   const [current, setCurrent] = useState<string | null>(null);
   const [palette, setPalette] = useState(false);
@@ -74,7 +75,7 @@ export default function App() {
       <div className="flex-1 flex min-h-0">
       <Sidebar
         page={page}
-        setPage={setPage}
+        setPage={(p) => { setPage(p); if (p === "workbench") reload(); }}
         threads={threads}
         current={current}
         onSelect={(id) => { setCurrent(id); setPage("chat"); }}
@@ -83,6 +84,14 @@ export default function App() {
         onSearch={() => setPalette(true)}
       />
       <main className="flex-1 flex min-w-0">
+        {page === "workbench" && (
+          <WorkbenchPage
+            threads={threads}
+            onOpen={(id) => { setCurrent(id); setPage("chat"); }}
+            onNew={createThread}
+            onChanged={reload}
+          />
+        )}
         {page === "chat" && (
           current
             ? <ChatPage key={current} threadId={current} onThreadChanged={reload} />
@@ -112,11 +121,11 @@ function NoThread({ onNew }: { onNew: () => void }) {
   return (
     <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
       <span className="bolt text-4xl text-ink mb-6" />
-      <h1 className="font-display text-4xl tracking-tight">Your workspace, agents and humans together.</h1>
+      <h1 className="font-display text-4xl tracking-tight">你的智能体工作台</h1>
       <p className="text-ink-2 mt-3 max-w-md text-sm">
-        Start a thread and deploy agents to plan, code, fetch and build — everything stays on your machine.
+        从想法到实现 —— 部署智能体去规划、编码、抓取与构建，一切都在本地。
       </p>
-      <button onClick={onNew} className="btn-ink mt-6">New thread</button>
+      <button onClick={onNew} className="btn-ink mt-6">新建任务</button>
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowUp, ChevronRight, Square } from "lucide-react";
 import { api } from "../api";
 import { useFetch } from "../lib/hooks";
-import { RunStream, ApprovalCard } from "../components/RunStream";
+import { RunStream, ApprovalCard, PlanCard, DeliverableCard } from "../components/RunStream";
 import { Inspector } from "../components/Inspector";
 import { Markdown } from "../components/Markdown";
 import { Expandable, PillSelect, Tip, cx } from "../components/ui";
@@ -17,10 +17,10 @@ type ThreadDetail = {
 };
 
 const SUGGESTIONS = [
-  "calc 21*2",
-  "fetch example.com",
-  "spawn a subagent team",
-  "run a shell command",
+  "计算 21*2",
+  "抓取 example.com 首页",
+  "派一组子代理帮我干活",
+  "执行一条 shell 命令",
 ];
 
 export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onThreadChanged: () => void }) {
@@ -29,8 +29,8 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
   const { data: providersData } = useFetch<{ providers: Provider[] }>("/api/providers");
 
   const [agentId, setAgentId] = useState("orchestrator");
-  const [providerId, setProviderId] = useState("mock");
-  const [model, setModel] = useState("mock");
+  const [providerId, setProviderId] = useState("auto");
+  const [model, setModel] = useState("");
   const [input, setInput] = useState("");
   const [liveRunId, setLiveRunId] = useState<string | null>(null);
   const [liveStatus, setLiveStatus] = useState("running");
@@ -45,6 +45,11 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
   // not a lone sub-agent child.
   const lastRunId = [...(data?.runs ?? [])].reverse().find((r) => r.depth === 0)?.id ?? data?.runs[data.runs.length - 1]?.id;
   const inspectRunId = liveRunId ?? lastRunId ?? null;
+  // Completed run's plan + deliverables persist in history (they're live-only in the stream).
+  const { data: lastRunDetail } = useFetch<{
+    plan?: { id: string; text: string; status: string }[];
+    deliverables?: { path: string; bytes?: number }[];
+  }>(!liveRunId && inspectRunId ? `/api/runs/${inspectRunId}` : null);
   const running = liveRunId && !["completed", "failed", "cancelled"].includes(liveStatus);
 
   // Context meter — the composer's right-side gauge (monocode-style).
@@ -82,7 +87,7 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
     <div className="flex-1 flex min-w-0">
       <div className="flex-1 flex flex-col min-w-0">
         <header className="h-13 px-5 flex items-center gap-2.5 border-b border-line shrink-0">
-          <span className="text-[13px] font-medium truncate">{data?.thread.title || "New thread"}</span>
+          <span className="text-[13px] font-medium truncate">{data?.thread.title || "新任务"}</span>
           <div className="ml-auto flex items-center gap-2">
             {inspectRunId && (
               <button onClick={() => setInspector((v) => !v)} className={`btn-mini ${inspector ? "!bg-ink !text-paper !border-ink" : ""}`}>
@@ -98,6 +103,12 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
               <EmptyState onSuggest={(s) => send(s)} />
             )}
             {(data?.messages ?? []).map((m) => <HistoricMessage key={m.id} m={m} />)}
+            {lastRunDetail?.plan && (
+              <PlanCard b={{ kind: "plan", items: lastRunDetail.plan }} />
+            )}
+            {lastRunDetail?.deliverables?.map((d) => (
+              <DeliverableCard key={d.path} b={{ kind: "deliverable", path: d.path, bytes: d.bytes }} />
+            ))}
             {(data?.pendingApprovals ?? []).map((a) => (
               <ApprovalCard key={a.approvalId} b={a} onDecided={() => {
                 // The server-side run resumes — follow its live stream again.
@@ -136,7 +147,7 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
               <textarea
                 className="w-full bg-transparent resize-none text-[14px] leading-relaxed outline-none placeholder:text-ink-3"
                 rows={Math.min(6, Math.max(1, input.split("\n").length))}
-                placeholder={`Message ${agentsData?.agents.find((a) => a.id === agentId)?.name ?? "agent"}…`}
+                placeholder={`给 ${agentsData?.agents.find((a) => a.id === agentId)?.name ?? "智能体"} 发消息…`}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
@@ -149,22 +160,27 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
                   value={agentId}
                   onValue={setAgentId}
                   options={(agentsData?.agents ?? []).map((a) => ({ value: a.id, label: a.name }))}
-                  placeholder="Agent"
+                  placeholder="智能体"
                 />
                 <PillSelect
                   className="w-28 !py-1 !text-[11px]"
                   value={providerId}
                   onValue={(v) => { setProviderId(v); setModel(""); }}
-                  options={providers.filter((p) => p.configured).map((p) => ({ value: p.id, label: p.label }))}
-                  placeholder="Provider"
+                  options={[
+                    { value: "auto", label: "Auto 智能路由" },
+                    ...providers.filter((p) => p.configured).map((p) => ({ value: p.id, label: p.label })),
+                  ]}
+                  placeholder="供应商"
                 />
-                <PillSelect
-                  className="w-36 !py-1 !text-[11px]"
-                  value={model}
-                  onValue={setModel}
-                  options={[{ value: "", label: "default model" }, ...models.map((m) => ({ value: m, label: m }))]}
-                  placeholder="Model"
-                />
+                {providerId !== "auto" && (
+                  <PillSelect
+                    className="w-36 !py-1 !text-[11px]"
+                    value={model}
+                    onValue={setModel}
+                    options={[{ value: "", label: "默认模型" }, ...models.map((m) => ({ value: m, label: m }))]}
+                    placeholder="模型"
+                  />
+                )}
                 {ctxPct !== null && (
                   <Tip content={`${ctx?.estimatedTokens?.toLocaleString() ?? "?"} / ${ctx?.budget?.toLocaleString() ?? "?"} tokens`} side="top">
                     <span className="meter">
@@ -177,15 +193,15 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
                   {running ? (
                     <>
                       <Orb small />
-                      <span className="shimmer-text">agent working</span>
+                      <span className="shimmer-text">智能体工作中</span>
                     </>
                   ) : (
-                    "Enter ↵ send"
+                    "Enter ↵ 发送"
                   )}
                 </span>
                 <div className="ml-auto">
                   {running ? (
-                    <Tip content="Stop this run" side="left">
+                    <Tip content="停止本次运行" side="left">
                       <button
                         onClick={stop}
                         className="w-8 h-8 rounded-full bg-card border border-line flex items-center justify-center text-ink-2 hover:text-ink hover:bg-fill transition-colors"
@@ -220,7 +236,7 @@ function EmptyState({ onSuggest }: { onSuggest: (s: string) => void }) {
         <div className="relative z-10">
           <span className="bolt float-y text-3xl text-ink inline-block mb-5" />
           <h1 className="font-display text-[34px] leading-tight tracking-tight">Welcome to AgentDesk</h1>
-          <p className="text-ink-2 mt-3 text-[14px]">Deploy agents to plan, fetch, code and build — everything stays on your machine.</p>
+          <p className="text-ink-2 mt-3 text-[14px]">部署智能体去规划、抓取、编码与构建 —— 一切都在本地。</p>
           <div className="flex flex-wrap justify-center gap-2 mt-7">
             {SUGGESTIONS.map((s, i) => (
               <button
