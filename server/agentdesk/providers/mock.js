@@ -54,7 +54,18 @@ export async function* streamChat({ model, messages, meta }) {
     return;
   }
 
-  if (/\bsub-?agent|delegate|parallel|team\b/.test(text)) {
+  if (/plan|规划|步骤|清单/.test(text)) {
+    push("plan_update", {
+      items: [
+        { id: "1", text: "分析任务目标", status: "done" },
+        { id: "2", text: "执行核心步骤", status: "doing" },
+        { id: "3", text: "产出交付物并验收", status: "todo" },
+      ],
+    });
+    if (/file|写入|write/.test(text)) {
+      push("write_file", { path: "notes/plan-result.txt", content: "Deliverable from mock plan run" });
+    }
+  } else if (/\bsub-?agent|delegate|parallel|team\b/.test(text)) {
     push("spawn_agent", { agent: "researcher", task: lastUser?.content ?? "Research this topic" });
     if (/parallel|team/.test(text)) {
       push("spawn_agent", { agent: "writer", task: `Summarize findings for: ${lastUser?.content ?? "topic"}` });

@@ -15,10 +15,10 @@ export function ActivityPage() {
       <div className="max-w-4xl mx-auto space-y-5">
         <header className="flex items-center gap-3">
           <div>
-            <h1 className="font-display text-2xl tracking-tight">Activity</h1>
-            <p className="text-sm text-ink-2 mt-1">Raw event log — every run is a durable, replayable event stream.</p>
+            <h1 className="font-display text-2xl tracking-tight">活动</h1>
+            <p className="text-sm text-ink-2 mt-1">原始事件日志 —— 每次运行都是持久、可重放的事件流。</p>
           </div>
-          <button onClick={reload} className="btn-ghost ml-auto !text-[12px]">Refresh</button>
+          <button onClick={reload} className="btn-ghost ml-auto !text-[12px]">刷新</button>
         </header>
         <div className="card divide-y divide-line font-mono text-[11px]">
           {(data?.events ?? []).map((e) => (
@@ -30,7 +30,7 @@ export function ActivityPage() {
             </div>
           ))}
           {(data?.events ?? []).length === 0 && (
-            <div className="px-3 py-6 text-ink-3 text-center">No events yet.</div>
+            <div className="px-3 py-6 text-ink-3 text-center">暂无事件。</div>
           )}
         </div>
       </div>

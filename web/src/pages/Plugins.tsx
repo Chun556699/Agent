@@ -18,9 +18,9 @@ export function PluginsPage() {
     <div className="flex-1 overflow-y-auto p-6">
       <div className="max-w-4xl mx-auto space-y-6">
         <header>
-          <h1 className="font-display text-2xl tracking-tight">Plugin marketplace</h1>
+          <h1 className="font-display text-2xl tracking-tight">插件市场</h1>
           <p className="text-sm text-ink-2 mt-1">
-            Install tools and MCP servers. Installed plugins load at boot; MCP tools appear as <code className="font-mono">plugin:tool</code>.
+            安装工具与 MCP 服务。已安装插件随启动加载；MCP 工具以 <code className="font-mono">plugin:tool</code> 形式出现。
           </p>
         </header>
 
@@ -34,7 +34,7 @@ export function PluginsPage() {
 
         {(data?.localModules?.length ?? 0) > 0 && (
           <section>
-            <h2 className="text-[13px] font-medium mb-2">Local modules</h2>
+            <h2 className="text-[13px] font-medium mb-2">本地模块</h2>
             <p className="text-[12px] text-ink-2 mb-3">
               .mjs files dropped in <code className="font-mono">~/.agentdesk/plugins</code>. Trust them like code — they run in-process.
             </p>
@@ -97,7 +97,7 @@ function MarketCard({ e, inst, onChanged }: { e: PluginEntry; inst?: InstalledPl
           </button>
         ) : (
           <>
-            <Tip content={inst.enabled ? "Disable plugin" : "Enable plugin"} side="top">
+            <Tip content={inst.enabled ? "停用插件" : "启用插件"} side="top">
               <span className="inline-flex">
                 <Switch
                   checked={inst.enabled}
@@ -146,8 +146,8 @@ function CustomMcpForm({ onAdded }: { onAdded: () => void }) {
 
   return (
     <section className="card p-4 space-y-3">
-      <h2 className="text-[14px] font-medium">Connect an MCP server</h2>
-      <p className="text-[12px] text-ink-2">Any stdio MCP server — the command runs locally and its tools register under its id.</p>
+      <h2 className="text-[14px] font-medium">连接 MCP 服务</h2>
+      <p className="text-[12px] text-ink-2">任意 stdio MCP 服务 —— 命令在本机运行，其工具将注册到该 id 下。</p>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
         <input className="input !text-[12px]" placeholder="id (e.g. my-server)" value={id} onChange={(e) => setId(e.target.value)} />
         <input className="input !text-[12px]" placeholder="command (e.g. npx)" value={command} onChange={(e) => setCommand(e.target.value)} />
@@ -155,7 +155,7 @@ function CustomMcpForm({ onAdded }: { onAdded: () => void }) {
       </div>
       <div className="flex items-center gap-2">
         <button disabled={busy || !id || !command} onClick={submit} className="btn-ink !text-[12px] !py-1.5">
-          {busy ? "Connecting…" : "Connect"}
+          {busy ? "连接中…" : "连接"}
         </button>
         {err && <span className="text-[11px] text-err">{err}</span>}
       </div>

@@ -3,6 +3,7 @@ import {
   Bot,
   BrainCircuit,
   Ellipsis,
+  KanbanSquare,
   MessagesSquare,
   Plug,
   Plus,
@@ -13,15 +14,16 @@ import {
 import { Menu, MenuItem, Tip } from "./ui";
 import type { Thread } from "../types";
 
-type Page = "chat" | "agents" | "plugins" | "providers" | "memory" | "activity";
+type Page = "workbench" | "chat" | "agents" | "plugins" | "providers" | "memory" | "activity";
 
 const NAV: { id: Page; label: string; icon: typeof MessagesSquare }[] = [
-  { id: "chat", label: "Chat", icon: MessagesSquare },
-  { id: "agents", label: "Agents", icon: Bot },
-  { id: "plugins", label: "Plugins", icon: Puzzle },
-  { id: "providers", label: "Providers", icon: Plug },
-  { id: "memory", label: "Memory", icon: BrainCircuit },
-  { id: "activity", label: "Activity", icon: Activity },
+  { id: "workbench", label: "工作台", icon: KanbanSquare },
+  { id: "chat", label: "对话", icon: MessagesSquare },
+  { id: "agents", label: "智能体", icon: Bot },
+  { id: "plugins", label: "插件", icon: Puzzle },
+  { id: "providers", label: "模型供应商", icon: Plug },
+  { id: "memory", label: "记忆", icon: BrainCircuit },
+  { id: "activity", label: "活动", icon: Activity },
 ];
 
 export function Sidebar({
@@ -48,12 +50,12 @@ export function Sidebar({
       <div className="px-3 pb-2 space-y-0.5">
         <button onClick={onNew} className="sidebar-action">
           <Plus size={14} className="text-ink-3" />
-          New thread
+          新建任务
           <span className="ml-auto kbd">Ctrl N</span>
         </button>
         <button onClick={onSearch} className="sidebar-action">
           <Search size={13} className="text-ink-3" />
-          Search
+          搜索
           <span className="ml-auto kbd">Ctrl K</span>
         </button>
       </div>
@@ -80,8 +82,8 @@ export function Sidebar({
       </nav>
 
       <div className="mt-6 px-5 flex items-center justify-between">
-        <span className="text-[11px] font-medium uppercase tracking-wider text-ink-3">Threads</span>
-        <Tip content="New thread (Ctrl+N)" side="right">
+        <span className="text-[11px] font-medium uppercase tracking-wider text-ink-3">最近对话</span>
+        <Tip content="新建任务 (Ctrl+N)" side="right">
           <button
             onClick={onNew}
             className="text-ink-3 hover:text-ink transition-colors -mr-1 p-0.5 rounded"
@@ -100,7 +102,7 @@ export function Sidebar({
             }`}
             onClick={() => onSelect(t.id)}
           >
-            <span className="truncate flex-1">{t.title || "New thread"}</span>
+            <span className="truncate flex-1">{t.title || "新任务"}</span>
             <Menu
               trigger={
                 <button
@@ -113,13 +115,13 @@ export function Sidebar({
               }
             >
               <MenuItem destructive onSelect={() => onDelete(t.id)}>
-                <Trash2 size={12} /> Delete thread
+                <Trash2 size={12} /> 删除任务
               </MenuItem>
             </Menu>
           </div>
         ))}
         {threads.length === 0 && (
-          <div className="px-3 py-4 text-[12px] text-ink-3">No threads yet.</div>
+          <div className="px-3 py-4 text-[12px] text-ink-3">还没有任务。</div>
         )}
       </div>
 

@@ -15,20 +15,20 @@ export function AgentsPage() {
       <div className="max-w-4xl mx-auto space-y-4">
         <header className="flex items-center gap-3">
           <div>
-            <h1 className="font-display text-2xl tracking-tight">Agents</h1>
+            <h1 className="font-display text-2xl tracking-tight">智能体</h1>
             <p className="text-sm text-ink-2 mt-1">
               Specialist sub-agents the orchestrator can delegate to — each with its own prompt, tools and context.
             </p>
           </div>
           <button onClick={() => setShowForm(true)} className="btn-ink ml-auto !text-[12px]">
-            <Plus size={13} /> Custom agent
+            <Plus size={13} /> 自定义智能体
           </button>
         </header>
 
         <Modal
           open={showForm}
           onOpenChange={setShowForm}
-          title="Custom agent"
+          title="自定义智能体"
           description="A specialist the orchestrator can spawn as a sub-agent. Its context is isolated — results are reported back."
         >
           <AgentForm tools={toolsData?.tools ?? []} onCreated={() => { setShowForm(false); reload(); }} />
@@ -41,7 +41,7 @@ export function AgentsPage() {
                 <Bot size={15} className="text-run shrink-0" />
                 <div className="font-medium text-[14px] flex-1">{a.name}</div>
                 {a.builtin
-                  ? <span className="text-[10px] px-2 py-0.5 rounded-full bg-fill text-ink-3">built-in</span>
+                  ? <span className="text-[10px] px-2 py-0.5 rounded-full bg-fill text-ink-3">内置</span>
                   : (
                     <button className="btn-mini !text-err" onClick={async () => { await api.del(`/api/agents/${a.id}`); reload(); }}>
                       delete
@@ -89,17 +89,17 @@ function AgentForm({ tools, onCreated }: { tools: ToolSpec[]; onCreated: () => v
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-2 gap-2">
-        <input className="input !text-[13px]" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
-        <input className="input !text-[13px]" placeholder="Description" value={description} onChange={(e) => setDescription(e.target.value)} />
+        <input className="input !text-[13px]" placeholder="名称" value={name} onChange={(e) => setName(e.target.value)} />
+        <input className="input !text-[13px]" placeholder="描述" value={description} onChange={(e) => setDescription(e.target.value)} />
       </div>
       <textarea
         className="input w-full !text-[13px] h-24 resize-none"
-        placeholder="System prompt — what this agent is for and how it should behave"
+        placeholder="系统提示词 —— 这个智能体负责什么、应当如何行事"
         value={systemPrompt}
         onChange={(e) => setSystemPrompt(e.target.value)}
       />
       <div>
-        <div className="text-[12px] text-ink-2 mb-1.5">Tools (none selected = all tools)</div>
+        <div className="text-[12px] text-ink-2 mb-1.5">工具（不选 = 全部工具）</div>
         <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto">
           {tools.map((t) => (
             <button
@@ -121,7 +121,7 @@ function AgentForm({ tools, onCreated }: { tools: ToolSpec[]; onCreated: () => v
       </div>
       <div className="flex items-center gap-2">
         <button onClick={submit} disabled={busy || !name || !systemPrompt} className="btn-ink !text-[12px]">
-          {busy ? "Creating…" : "Create agent"}
+          {busy ? "创建中…" : "创建智能体"}
         </button>
         {err && <span className="text-[12px] text-err">{err}</span>}
       </div>

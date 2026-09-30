@@ -1,3 +1,4 @@
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { contextStats } from "./agents/context.js";
 import { createAgent, deleteAgent, listAgents } from "./agents/roles.js";
 import {
@@ -25,7 +26,7 @@ import {
   listProviders,
   resolveModel,
 } from "./providers/index.js";
-import { registerBuiltinTools } from "./tools/builtin.js";
+import { registerBuiltinTools, resolveInWorkspace } from "./tools/builtin.js";
 import { toolSpecs } from "./tools/index.js";
 
 const AUTO_TITLE_LEN = 60;
@@ -96,6 +97,7 @@ export function createApi() {
        FROM threads t ORDER BY t.updated_at DESC LIMIT 500`
     ).map((t) => ({
       id: t.id, title: t.title, agentId: t.agent_id, runCount: t.run_count,
+      status: t.status ?? "inbox",
       hasSummary: !!t.summary, createdAt: t.created_at, updatedAt: t.updated_at,
     })),
   }));
@@ -138,6 +140,17 @@ export function createApi() {
     return { thread, messages, runs, pendingApprovals };
   });
 
+  const THREAD_STATUSES = ["inbox", "in_progress", "review", "done"];
+  router.patch("/api/threads/:id", ({ params, body }) => {
+    if (!THREAD_STATUSES.includes(body?.status)) {
+      throw new HttpError(400, `status must be one of ${THREAD_STATUSES.join(", ")}`);
+    }
+    const t = q.get("SELECT id FROM threads WHERE id = ?", params.id);
+    if (!t) throw new HttpError(404, "Thread not found");
+    q.run("UPDATE threads SET status = ?, updated_at = datetime('now') WHERE id = ?", body.status, params.id);
+    return { ok: true };
+  });
+
   router.delete("/api/threads/:id", ({ params }) => {
     q.run("DELETE FROM messages WHERE thread_id = ?", params.id);
     q.run("DELETE FROM runs WHERE thread_id = ?", params.id);
@@ -178,6 +191,14 @@ export function createApi() {
     return { runId };
   });
 
+  router.get("/api/deliverables", ({ req }) => {
+    const path = new URL(req.url, "http://x").searchParams.get("path");
+    const file = resolveInWorkspace(path ?? "");
+    if (!existsSync(file) || !statSync(file).isFile()) throw new HttpError(404, "File not found");
+    if (statSync(file).size > 200 * 1024) throw new HttpError(400, "File too large (200KB max)");
+    return { path, content: readFileSync(file, "utf8") };
+  });
+
   router.get("/api/runs/:id", ({ params }) => {
     const run = q.get("SELECT * FROM runs WHERE id = ?", params.id);
     if (!run) throw new HttpError(404, "Run not found");
@@ -188,7 +209,15 @@ export function createApi() {
     const messages = q.all(
       "SELECT * FROM messages WHERE run_id = ? ORDER BY rowid", params.id
     ).map(serializeMessage);
-    return { run, children, messages };
+    const plan = q.get(
+      "SELECT data_json FROM events WHERE run_id = ? AND type = 'plan' ORDER BY seq DESC LIMIT 1",
+      params.id
+    );
+    const deliverables = q.all(
+      "SELECT data_json FROM events WHERE run_id = ? AND type = 'deliverable' ORDER BY seq",
+      params.id
+    ).map((e) => JSON.parse(e.data_json));
+    return { run, children, messages, plan: plan ? JSON.parse(plan.data_json).items : null, deliverables };
   });
 
   router.get("/api/runs/:id/events", ({ req, res, params }) => {

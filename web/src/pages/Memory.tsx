@@ -9,7 +9,7 @@ export function MemoryPage() {
     <div className="flex-1 overflow-y-auto p-6">
       <div className="max-w-3xl mx-auto space-y-5">
         <header>
-          <h1 className="font-display text-2xl tracking-tight">Memory</h1>
+          <h1 className="font-display text-2xl tracking-tight">记忆</h1>
           <p className="text-sm text-ink-2 mt-1">
             Persistent facts agents save via <code className="font-mono">memory_save</code>. Shared across threads and sub-agents.
           </p>

@@ -4,6 +4,7 @@ import {
   Activity,
   Bot,
   BrainCircuit,
+  KanbanSquare,
   MessagesSquare,
   Plug,
   Plus,
@@ -13,15 +14,16 @@ import {
 import { cx } from "./ui";
 import type { Thread } from "../types";
 
-type Page = "chat" | "agents" | "plugins" | "providers" | "memory" | "activity";
+type Page = "workbench" | "chat" | "agents" | "plugins" | "providers" | "memory" | "activity";
 
 const PAGES: { id: Page; label: string; icon: typeof MessagesSquare }[] = [
-  { id: "chat", label: "Chat", icon: MessagesSquare },
-  { id: "agents", label: "Agents", icon: Bot },
-  { id: "plugins", label: "Plugins", icon: Puzzle },
-  { id: "providers", label: "Providers", icon: Plug },
-  { id: "memory", label: "Memory", icon: BrainCircuit },
-  { id: "activity", label: "Activity", icon: Activity },
+  { id: "workbench", label: "工作台", icon: KanbanSquare },
+  { id: "chat", label: "对话", icon: MessagesSquare },
+  { id: "agents", label: "智能体", icon: Bot },
+  { id: "plugins", label: "插件", icon: Puzzle },
+  { id: "providers", label: "模型供应商", icon: Plug },
+  { id: "memory", label: "记忆", icon: BrainCircuit },
+  { id: "activity", label: "活动", icon: Activity },
 ];
 
 export function SearchPalette({
@@ -59,7 +61,7 @@ export function SearchPalette({
       {
         key: "new",
         icon: Plus,
-        label: "New thread",
+        label: "新建任务",
         sub: "Ctrl N",
         action: () => { onNewThread(); onOpenChange(false); },
       },
@@ -69,19 +71,19 @@ export function SearchPalette({
         list.push({
           key: `page-${p.id}`,
           icon: p.icon,
-          label: `Go to ${p.label}`,
+          label: `前往${p.label}`,
           action: () => { onGoPage(p.id); onOpenChange(false); },
         });
       }
     }
     for (const t of threads) {
-      const title = t.title || "New thread";
+      const title = t.title || "新任务";
       if (!needle || title.toLowerCase().includes(needle)) {
         list.push({
           key: `t-${t.id}`,
           icon: MessagesSquare,
           label: title,
-          sub: "thread",
+          sub: "任务",
           action: () => { onSelectThread(t.id); onOpenChange(false); },
         });
       }
@@ -109,7 +111,7 @@ export function SearchPalette({
             <input
               ref={inputRef}
               className="palette-input"
-              placeholder="Search threads, pages, actions…"
+              placeholder="搜索任务、页面、操作…"
               value={q}
               onChange={(e) => { setQ(e.target.value); setCursor(0); }}
             />
@@ -129,7 +131,7 @@ export function SearchPalette({
               </button>
             ))}
             {rows.length === 0 && (
-              <div className="px-3 py-6 text-center text-[12px] text-ink-3">No matches.</div>
+              <div className="px-3 py-6 text-center text-[12px] text-ink-3">没有匹配结果。</div>
             )}
           </div>
         </RDialog.Content>

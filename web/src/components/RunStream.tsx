@@ -1,5 +1,5 @@
 import { useEffect, useReducer, useRef, useState } from "react";
-import { Bot, ChevronRight } from "lucide-react";
+import { Bot, CheckCircle2, ChevronRight, Circle, FileText, ListChecks, Loader2 } from "lucide-react";
 import { api, streamRun } from "../api";
 import { Markdown } from "./Markdown";
 import { Orb, Dots, Ticker } from "./fx";
@@ -11,6 +11,8 @@ type Block =
   | { kind: "tool"; id: string; name: string; args: unknown; ok?: boolean; result?: string; error?: string; denied?: boolean }
   | { kind: "approval"; approvalId: string; tool: string; args: unknown; danger: string; resolved?: boolean }
   | { kind: "subagent"; childRunId: string; agentName: string; task: string; status?: string }
+  | { kind: "plan"; items: { id: string; text: string; status: string }[] }
+  | { kind: "deliverable"; path: string; bytes?: number }
   | { kind: "notice"; text: string };
 
 type State = {
@@ -49,6 +51,16 @@ function reducer(state: State, ev: RunEvent): State {
     }
     case "subagent_started":
       blocks.push({ kind: "subagent", childRunId: ev.childRunId ?? "", agentName: ev.agentName ?? "", task: ev.task ?? "" });
+      return { ...state, blocks };
+    case "plan": {
+      const items = (ev.items ?? []) as { id: string; text: string; status: string }[];
+      const i = blocks.findIndex((b) => b.kind === "plan");
+      if (i >= 0) blocks[i] = { kind: "plan", items };
+      else blocks.push({ kind: "plan", items });
+      return { ...state, blocks };
+    }
+    case "deliverable":
+      blocks.push({ kind: "deliverable", path: String(ev.path ?? ""), bytes: ev.bytes as number | undefined });
       return { ...state, blocks };
     case "subagent_finished": {
       const i = blocks.findIndex((b) => b.kind === "subagent" && b.childRunId === ev.childRunId);
@@ -130,14 +142,14 @@ export function RunStream({ runId, compact, onStatusChange }: { runId: string; c
       {state.status === "running" && (
         <div className="flex items-center gap-2.5 text-[12px] text-ink-3">
           <Orb small />
-          <span className="shimmer-text">working</span>
+          <span className="shimmer-text">智能体工作中</span>
           <Dots />
         </div>
       )}
       {state.status === "awaiting_approval" && (
         <div className="flex items-center gap-2 text-[12px] text-warn">
           <span className="streaming-dot w-1.5 h-1.5 rounded-full bg-warn" />
-          waiting for approval
+          等待审批
         </div>
       )}
       {!live && !compact && (
@@ -171,6 +183,10 @@ function BlockView({ b, compact, live, last }: { b: Block; compact?: boolean; li
       return b.resolved ? null : <ApprovalCard b={b} />;
     case "subagent":
       return <SubagentCard b={b} />;
+    case "plan":
+      return <PlanCard b={b} />;
+    case "deliverable":
+      return <DeliverableCard b={b} />;
     case "notice":
       return <div className="text-[11px] text-ink-3 italic">{b.text}</div>;
   }
@@ -211,6 +227,65 @@ function ToolCard({ b }: { b: Extract<Block, { kind: "tool" }> }) {
   );
 }
 
+function PlanCard({ b }: { b: Extract<Block, { kind: "plan" }> }) {
+  const done = b.items.filter((i) => i.status === "done").length;
+  return (
+    <div className="card px-4 py-3 rise">
+      <div className="flex items-center gap-2 text-[12px] font-medium">
+        <ListChecks size={14} className="text-run" />
+        任务规划
+        <span className="ml-auto text-[10.5px] font-mono text-ink-3">{done}/{b.items.length}</span>
+      </div>
+      <ul className="mt-2 space-y-1.5">
+        {b.items.map((it) => (
+          <li key={it.id} className="flex items-start gap-2 text-[12.5px]">
+            {it.status === "done" ? (
+              <CheckCircle2 size={14} className="text-ok shrink-0 mt-0.5" />
+            ) : it.status === "doing" ? (
+              <Loader2 size={14} className="text-run animate-spin shrink-0 mt-0.5" />
+            ) : (
+              <Circle size={14} className="text-ink-3 shrink-0 mt-0.5" />
+            )}
+            <span className={it.status === "done" ? "text-ink-3 line-through" : ""}>{it.text}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function DeliverableCard({ b }: { b: Extract<Block, { kind: "deliverable" }> }) {
+  const [open, setOpen] = useState(false);
+  const [content, setContent] = useState<string | null>(null);
+  const load = async () => {
+    if (!open && content === null) {
+      try {
+        const d = await api.get<{ content: string }>(`/api/deliverables?path=${encodeURIComponent(b.path)}`);
+        setContent(d.content);
+      } catch (e) {
+        setContent(`（读取失败：${(e as Error).message}）`);
+      }
+    }
+    setOpen((o) => !o);
+  };
+  return (
+    <div className="card px-3.5 py-2.5 text-[12px] rise">
+      <button className="flex w-full items-center gap-2 text-left" onClick={load}>
+        <FileText size={13} className="text-run shrink-0" />
+        <span className="font-medium">交付物</span>
+        <code className="font-mono text-[11.5px] text-ink-2 flex-1 truncate">{b.path}</code>
+        {b.bytes != null && <span className="text-[10px] text-ink-3">{b.bytes} B</span>}
+        <ChevronRight size={13} className={cx("chev text-ink-3", open && "open")} />
+      </button>
+      <Expandable open={open}>
+        <pre className="pt-1.5 text-[11px] text-ink-2 max-h-64 overflow-y-auto whitespace-pre-wrap">
+          {content ?? "加载中…"}
+        </pre>
+      </Expandable>
+    </div>
+  );
+}
+
 export function ApprovalCard({ b, onDecided }: { b: { approvalId: string; tool: string; args: unknown; danger: string }; onDecided?: () => void }) {
   const decide = async (approved: boolean, alwaysAllow = false) => {
     await api.post(`/api/approvals/${b.approvalId}`, { approved, alwaysAllow });
@@ -220,14 +295,14 @@ export function ApprovalCard({ b, onDecided }: { b: { approvalId: string; tool: 
     <div className="card px-4 py-3 rise pulse-ring border-l-2" style={{ borderLeftColor: "var(--color-warn)" }}>
       <div className="flex items-center gap-2">
         <span className="w-1.5 h-1.5 rounded-full bg-warn streaming-dot" />
-        <span className="text-[13px] font-medium">Approve <code className="font-mono">{b.tool}</code>?</span>
+        <span className="text-[13px] font-medium">批准调用 <code className="font-mono">{b.tool}</code>？</span>
         <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-fill text-ink-2">{b.danger}</span>
       </div>
       <pre className="mt-1.5 text-[11px] text-ink-2 max-h-32 overflow-y-auto">{JSON.stringify(b.args, null, 2)?.slice(0, 1200)}</pre>
       <div className="flex gap-2 mt-2.5">
-        <button onClick={() => decide(true)} className="btn-mini !bg-ink !text-paper !border-ink">Approve</button>
-        <button onClick={() => decide(true, true)} className="btn-mini">Always allow {b.tool}</button>
-        <button onClick={() => decide(false)} className="btn-mini !text-err !border-err/30">Deny</button>
+        <button onClick={() => decide(true)} className="btn-mini !bg-ink !text-paper !border-ink">批准</button>
+        <button onClick={() => decide(true, true)} className="btn-mini">始终允许 {b.tool}</button>
+        <button onClick={() => decide(false)} className="btn-mini !text-err !border-err/30">拒绝</button>
       </div>
     </div>
   );
@@ -239,7 +314,7 @@ function SubagentCard({ b }: { b: Extract<Block, { kind: "subagent" }> }) {
     <div className={cx("card px-4 py-3 rise", running && "card-live")}>
       <div className="flex items-center gap-2 text-[12px]">
         <Bot size={14} className="text-run shrink-0" />
-        <span className="font-medium">Sub-agent · {b.agentName}</span>
+        <span className="font-medium">子代理 · {b.agentName}</span>
         {b.status ? (
           <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-fill text-ink-2">{b.status}</span>
         ) : (

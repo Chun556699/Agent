@@ -5,6 +5,7 @@ import * as anthropic from "./anthropic.js";
 import * as gemini from "./gemini.js";
 import * as mock from "./mock.js";
 import * as openai from "./openai.js";
+import { autoRoute } from "./router.js";
 
 /**
  * Vendor catalog. `format` selects the wire driver; most vendors expose an
@@ -64,6 +65,7 @@ export function listProviders() {
       keyRequired: v.keyRequired !== false,
       configured: !!row?.api_key_enc || v.keyRequired === false,
       options: JSON.parse(row?.config_json || "{}"),
+      models: JSON.parse(row?.config_json || "{}")?.models ?? v.models,
     };
   });
 }
@@ -75,9 +77,9 @@ export function getProviderState(id) {
   return { vendor, row };
 }
 
-export function configureProvider(id, { apiKey, baseUrl, enabled, extraBody, stream, sendTools }) {
+export function configureProvider(id, { apiKey, baseUrl, enabled, extraBody, stream, sendTools, models }) {
   const { vendor } = getProviderState(id);
-  const existing = q.get("SELECT api_key_enc, config_json FROM providers WHERE id = ?", id);
+  const existing = q.get("SELECT api_key_enc, base_url, config_json FROM providers WHERE id = ?", id);
   const enc =
     apiKey != null ? (apiKey === "" ? null : encryptSecret(apiKey)) : existing?.api_key_enc ?? null;
   const options = JSON.parse(existing?.config_json || "{}");
@@ -97,6 +99,12 @@ export function configureProvider(id, { apiKey, baseUrl, enabled, extraBody, str
     else if (typeof sendTools !== "boolean") throw new HttpError(400, "sendTools must be a boolean");
     else options.sendTools = sendTools;
   }
+  if (models !== undefined) {
+    if (models === null) delete options.models;
+    else if (!Array.isArray(models) || models.some((m) => typeof m !== "string")) {
+      throw new HttpError(400, "models must be a string array");
+    } else options.models = models;
+  }
   q.run(
     `INSERT INTO providers (id, base_url, enabled, api_key_enc, config_json, updated_at)
      VALUES (?, ?, ?, ?, ?, datetime('now'))
@@ -107,7 +115,7 @@ export function configureProvider(id, { apiKey, baseUrl, enabled, extraBody, str
        config_json = excluded.config_json,
        updated_at = excluded.updated_at`,
     id,
-    baseUrl != null ? baseUrl : vendor.baseUrl ?? "",
+    baseUrl != null ? baseUrl : existing?.base_url ?? vendor.baseUrl ?? "",
     enabled == null ? 1 : enabled ? 1 : 0,
     enc,
     JSON.stringify(options)
@@ -115,7 +123,12 @@ export function configureProvider(id, { apiKey, baseUrl, enabled, extraBody, str
 }
 
 /** Resolve a provider+model into a working streamChat call. */
-export function resolveModel({ providerId, model }) {
+export function resolveModel({ providerId, model, task }) {
+  if (providerId === "auto") {
+    const routed = autoRoute(task, listProviders());
+    providerId = routed.providerId;
+    model = routed.model;
+  }
   const { vendor, row } = getProviderState(providerId);
   if (row && !row.enabled) throw new HttpError(400, `Provider '${providerId}' is disabled`);
   const apiKey = row?.api_key_enc ? decryptSecret(row.api_key_enc) : null;
@@ -124,6 +137,9 @@ export function resolveModel({ providerId, model }) {
   }
   const driver = DRIVERS[vendor.format];
   const chosen = model || vendor.models[0];
+  if (!chosen) {
+    throw new HttpError(400, `Provider '${providerId}' has no model — set one via the models option or pass model explicitly`);
+  }
   const options = JSON.parse(row?.config_json || "{}");
   return {
     providerId,

@@ -13,9 +13,9 @@ export function ProvidersPage() {
     <div className="flex-1 overflow-y-auto p-6">
       <div className="max-w-4xl mx-auto space-y-6">
         <header>
-          <h1 className="font-display text-2xl tracking-tight">Providers</h1>
+          <h1 className="font-display text-2xl tracking-tight">模型供应商</h1>
           <p className="text-sm text-ink-2 mt-1">
-            Connect model vendors. Keys are encrypted at rest (AES-256-GCM) and never leave this machine.
+            接入模型厂商。密钥本地 AES-256-GCM 加密存储，永不离开这台机器。
           </p>
         </header>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -66,7 +66,7 @@ function ProviderCard({ p, onChanged }: { p: Provider; onChanged: () => void }) 
       <div className="flex items-center gap-2">
         <span className="font-medium text-[14px] flex-1">{p.label}</span>
         <span className="text-[10px] px-2 py-0.5 rounded-full bg-fill text-ink-2 font-mono">{p.format}</span>
-        <Tip content={p.enabled ? "Disable provider" : "Enable provider"} side="left">
+        <Tip content={p.enabled ? "停用" : "启用"} side="left">
           <span className="inline-flex"><Switch checked={p.enabled} onChecked={() => toggle()} /></span>
         </Tip>
       </div>
@@ -75,7 +75,7 @@ function ProviderCard({ p, onChanged }: { p: Provider; onChanged: () => void }) 
         <input
           type="password"
           className="input w-full !text-[12px]"
-          placeholder={p.hasKey ? "API key saved — enter to replace" : "API key"}
+          placeholder={p.hasKey ? "已保存 key —— 输入则替换" : "API key"}
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
         />
@@ -95,8 +95,8 @@ function ProviderCard({ p, onChanged }: { p: Provider; onChanged: () => void }) 
       </div>
 
       <div className="flex items-center gap-2 pt-0.5">
-        <button onClick={save} disabled={busy} className="btn-ink !text-[12px] !py-1.5">Save</button>
-        <button onClick={test} disabled={busy || !p.configured} className="btn-ghost !text-[12px] !py-1.5">Test connection</button>
+        <button onClick={save} disabled={busy} className="btn-ink !text-[12px] !py-1.5">保存</button>
+        <button onClick={test} disabled={busy || !p.configured} className="btn-ghost !text-[12px] !py-1.5">测试连接</button>
         {testMsg && (
           <span className={`text-[11px] truncate flex items-center gap-1 ${testMsg.ok ? "text-ok" : "text-err"}`}>
             {testMsg.ok ? <CheckCircle2 size={12} /> : <XCircle size={12} />}

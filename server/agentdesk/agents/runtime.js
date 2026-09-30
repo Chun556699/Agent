@@ -128,6 +128,7 @@ export async function startRun({
   const resolved = resolveModel({
     providerId: providerId ?? agent.model?.providerId ?? "mock",
     model: model ?? agent.model?.model,
+    task,
   });
 
   const runId = presetRunId ?? newId("run");
@@ -139,6 +140,7 @@ export async function startRun({
      VALUES (?, ?, ?, ?, ?, 'running', ?, ?)`,
     runId, threadId, agentId, parentRunId, depth, resolved.providerId, resolved.model
   );
+  if (depth === 0) q.run("UPDATE threads SET status = 'in_progress' WHERE id = ?", threadId);
 
   if (task != null) {
     // Sub-agent tasks belong to the child's own context view.
@@ -206,6 +208,13 @@ export async function startRun({
           runId, threadId, agentId, depth, signal: controller.signal,
         });
         emit(runId, "tool_result", { toolCallId: tc.id, name: tc.name, ...out });
+        if (out.ok && tc.name === "write_file") {
+          emit(runId, "deliverable", {
+            toolCallId: tc.id,
+            path: tc.arguments?.path,
+            bytes: out.result?.bytes,
+          });
+        }
         const content = out.ok
           ? (typeof out.result === "string" ? out.result : JSON.stringify(out.result))
           : `Error: ${out.error}`;
@@ -228,6 +237,7 @@ export async function startRun({
        WHERE id = ?`,
       status, error, totalUsage.inputTokens, totalUsage.outputTokens, runId
     );
+    if (depth === 0) q.run("UPDATE threads SET status = 'review' WHERE id = ?", threadId);
     emit(runId, "run_completed", { runId, status, error, usage: totalUsage });
   }
 
