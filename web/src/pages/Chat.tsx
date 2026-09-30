@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowUp, ChevronRight, Square } from "lucide-react";
 import { api } from "../api";
 import { useFetch } from "../lib/hooks";
-import { RunStream, ApprovalCard } from "../components/RunStream";
+import { RunStream, ApprovalCard, PlanCard, DeliverableCard } from "../components/RunStream";
 import { Inspector } from "../components/Inspector";
 import { Markdown } from "../components/Markdown";
 import { Expandable, PillSelect, Tip, cx } from "../components/ui";
@@ -45,6 +45,11 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
   // not a lone sub-agent child.
   const lastRunId = [...(data?.runs ?? [])].reverse().find((r) => r.depth === 0)?.id ?? data?.runs[data.runs.length - 1]?.id;
   const inspectRunId = liveRunId ?? lastRunId ?? null;
+  // Completed run's plan + deliverables persist in history (they're live-only in the stream).
+  const { data: lastRunDetail } = useFetch<{
+    plan?: { id: string; text: string; status: string }[];
+    deliverables?: { path: string; bytes?: number }[];
+  }>(!liveRunId && inspectRunId ? `/api/runs/${inspectRunId}` : null);
   const running = liveRunId && !["completed", "failed", "cancelled"].includes(liveStatus);
 
   // Context meter — the composer's right-side gauge (monocode-style).
@@ -98,6 +103,12 @@ export function ChatPage({ threadId, onThreadChanged }: { threadId: string; onTh
               <EmptyState onSuggest={(s) => send(s)} />
             )}
             {(data?.messages ?? []).map((m) => <HistoricMessage key={m.id} m={m} />)}
+            {lastRunDetail?.plan && (
+              <PlanCard b={{ kind: "plan", items: lastRunDetail.plan }} />
+            )}
+            {lastRunDetail?.deliverables?.map((d) => (
+              <DeliverableCard key={d.path} b={{ kind: "deliverable", path: d.path, bytes: d.bytes }} />
+            ))}
             {(data?.pendingApprovals ?? []).map((a) => (
               <ApprovalCard key={a.approvalId} b={a} onDecided={() => {
                 // The server-side run resumes — follow its live stream again.

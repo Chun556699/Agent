@@ -110,7 +110,7 @@ export function WorkbenchPage({
                             }}
                             className="btn-mini !text-[10px] !py-0.5"
                           >
-                            {NEXT_LABEL[NEXT[t.status ?? "inbox"]!]}
+                            {NEXT_LABEL[t.status ?? "inbox"]}
                             <ArrowRight size={10} />
                           </button>
                         </div>

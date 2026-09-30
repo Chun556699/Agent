@@ -105,7 +105,7 @@ export function SearchPalette({
           className="anim-pop fixed left-1/2 top-[18%] z-50 w-[520px] max-w-[92vw] -translate-x-1/2 rounded-2xl border border-line bg-card shadow-pop overflow-hidden"
           aria-describedby={undefined}
         >
-          <RDialog.Title className="sr-only">Search</RDialog.Title>
+          <RDialog.Title className="sr-only">搜索</RDialog.Title>
           <div className="flex items-center gap-2.5 px-4 border-b border-line" onKeyDown={onKey}>
             <Search size={15} className="text-ink-3 shrink-0" />
             <input

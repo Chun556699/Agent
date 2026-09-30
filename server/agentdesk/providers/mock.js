@@ -65,16 +65,16 @@ export async function* streamChat({ model, messages, meta }) {
     if (/file|写入|write/.test(text)) {
       push("write_file", { path: "notes/plan-result.txt", content: "Deliverable from mock plan run" });
     }
-  } else if (/\bsub-?agent|delegate|parallel|team\b/.test(text)) {
+  } else if (/\bsub-?agent|delegate|parallel|team\b|子代理|派/.test(text)) {
     push("spawn_agent", { agent: "researcher", task: lastUser?.content ?? "Research this topic" });
     if (/parallel|team/.test(text)) {
       push("spawn_agent", { agent: "writer", task: `Summarize findings for: ${lastUser?.content ?? "topic"}` });
     }
-  } else if (/shell|command|terminal/.test(text)) {
+  } else if (/shell|command|terminal|命令/.test(text)) {
     push("run_shell_command", { command: "echo hello from agentdesk" });
-  } else if (/fetch|http|url|web/.test(text)) {
+  } else if (/fetch|http|url|web|抓取|网页|首页/.test(text)) {
     push("http_fetch", { url: "https://example.com", method: "GET" });
-  } else if (/file|write/.test(text)) {
+  } else if (/file|write|写入|文件/.test(text)) {
     push("write_file", { path: "notes/output.txt", content: "Written by AgentDesk mock run" });
   } else if (/remember|memory/.test(text)) {
     push("memory_save", { content: lastUser?.content ?? "", tags: "mock" });

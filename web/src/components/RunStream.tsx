@@ -227,7 +227,7 @@ function ToolCard({ b }: { b: Extract<Block, { kind: "tool" }> }) {
   );
 }
 
-function PlanCard({ b }: { b: Extract<Block, { kind: "plan" }> }) {
+export function PlanCard({ b }: { b: Extract<Block, { kind: "plan" }> }) {
   const done = b.items.filter((i) => i.status === "done").length;
   return (
     <div className="card px-4 py-3 rise">
@@ -254,7 +254,7 @@ function PlanCard({ b }: { b: Extract<Block, { kind: "plan" }> }) {
   );
 }
 
-function DeliverableCard({ b }: { b: Extract<Block, { kind: "deliverable" }> }) {
+export function DeliverableCard({ b }: { b: Extract<Block, { kind: "deliverable" }> }) {
   const [open, setOpen] = useState(false);
   const [content, setContent] = useState<string | null>(null);
   const load = async () => {

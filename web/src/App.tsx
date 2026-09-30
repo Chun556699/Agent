@@ -75,7 +75,7 @@ export default function App() {
       <div className="flex-1 flex min-h-0">
       <Sidebar
         page={page}
-        setPage={setPage}
+        setPage={(p) => { setPage(p); if (p === "workbench") reload(); }}
         threads={threads}
         current={current}
         onSelect={(id) => { setCurrent(id); setPage("chat"); }}

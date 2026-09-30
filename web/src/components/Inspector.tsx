@@ -102,7 +102,7 @@ export function Inspector({ runId }: { runId: string }) {
         <section>
           <h3 className="text-[11px] font-medium uppercase tracking-wider text-ink-3 mb-2">
             Tools
-            <span className="normal-case font-normal text-ink-3 ml-1.5">auto-approve</span>
+            <span className="normal-case font-normal text-ink-3 ml-1.5">自动批准</span>
           </h3>
           <div className="card divide-y divide-line text-[12px]">
             {tools.map((t) => (
